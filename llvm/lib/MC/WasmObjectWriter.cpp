@@ -370,11 +370,28 @@ void WasmObjectWriter::startCustomSection(SectionBookkeeping &Section,
   // The position where the section header ends, for measuring its size.
   Section.PayloadOffset = W->OS.tell();
 
-  // Custom sections in wasm also have a string identifier.
-  writeString(Name);
+  // Custom sections in wasm also have a string identifier with extra paddings for alignment.
+  // TODO: support section alignment at asm and llvm level?
+  unsigned Alignment = 1;
+  if (Name == "__clangast")
+    Alignment = 4;
+
+  // Calculate the encoded size of name length and add pads based on it and alignment.
+  raw_null_ostream NullOS;
+  uint64_t NameSizeLength = encodeULEB128(Name.size(), NullOS);
+  uint64_t ContentsOffset = Section.PayloadOffset + NameSizeLength + Name.size();
+  uint64_t Paddings = offsetToAlignment(ContentsOffset, Align(Alignment));
+  ContentsOffset += Paddings;
+
+  // LEB128 greater than 5 bytes is invalid
+  assert((NameSizeLength + Paddings) <= 5 && "too long section name to align");
+
+  encodeSLEB128(Name.size(), W->OS, NameSizeLength + Paddings);
+  W->OS << Name;
 
   // The position where the custom section starts.
   Section.ContentsOffset = W->OS.tell();
+  assert(Section.ContentsOffset == ContentsOffset && "invalid padding");
 }
 
 // Now that the section is complete and we know how big it is, patch up the

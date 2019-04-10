@@ -1160,6 +1160,10 @@ static bool isInSymtab(const MCSymbolWasm &Sym) {
   if (Sym.isSection())
     return false;
 
+  // Clang's precompiled headers are in a separate custom section
+  if (Sym.getName() == "__clang_ast")
+    return false;
+
   return true;
 }
 

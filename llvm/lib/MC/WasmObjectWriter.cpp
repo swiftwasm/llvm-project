@@ -485,6 +485,10 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
 
   if (SymA && SymA->isVariable()) {
     const MCExpr *Expr = SymA->getVariableValue();
+    if (Expr->getKind() != MCExpr::SymbolRef) {
+      Expr->dump();
+      llvm_unreachable("expression kind not supported");
+    }
     const auto *Inner = cast<MCSymbolRefExpr>(Expr);
     if (Inner->getKind() == MCSymbolRefExpr::VK_WEAKREF)
       llvm_unreachable("weakref used in reloc not yet implemented");
@@ -552,6 +556,10 @@ static const MCSymbolWasm *resolveSymbol(const MCSymbolWasm &Symbol) {
   const MCSymbolWasm* Ret = &Symbol;
   while (Ret->isVariable()) {
     const MCExpr *Expr = Ret->getVariableValue();
+    if (Expr->getKind() != MCExpr::SymbolRef) {
+      Expr->dump();
+      llvm_unreachable("expression kind not supported");
+    }
     auto *Inner = cast<MCSymbolRefExpr>(Expr);
     Ret = cast<MCSymbolWasm>(&Inner->getSymbol());
   }

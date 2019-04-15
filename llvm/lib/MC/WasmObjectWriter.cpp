@@ -555,6 +555,23 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
   }
 }
 
+static const MCSymbolRefExpr* pullSymbol(const MCExpr *TheExpr) {
+  if (!TheExpr) return nullptr;
+  const MCSymbolRefExpr* S = dyn_cast<MCSymbolRefExpr>(TheExpr);
+  if (S) return S;
+  const MCBinaryExpr* Expr = dyn_cast<MCBinaryExpr>(TheExpr);
+  if (!Expr) return nullptr;
+  S = dyn_cast_or_null<MCSymbolRefExpr>(Expr->getLHS());
+  if (S) return S;
+  S = dyn_cast_or_null<MCSymbolRefExpr>(Expr->getRHS());
+  if (S) return S;
+  S = pullSymbol(Expr->getLHS());
+  if (S) return S;
+  S = pullSymbol(Expr->getRHS());
+  if (S) return S;
+  return nullptr;
+}
+
 static const MCSymbolWasm *resolveSymbol(const MCSymbolWasm &Symbol) {
   const MCSymbolWasm* Ret = &Symbol;
   while (Ret->isVariable()) {
@@ -562,7 +579,10 @@ static const MCSymbolWasm *resolveSymbol(const MCSymbolWasm &Symbol) {
     if (Expr->getKind() == MCExpr::Binary) {
       Expr->dump();
       fprintf(stderr, "The expr type is %d\n", (int)Expr->getKind());
-      return nullptr;
+      Expr = pullSymbol(Expr);
+      if (!Expr) {
+        llvm_unreachable("can't find a symbol in this mess\n");
+      }
     }
     auto *Inner = cast<MCSymbolRefExpr>(Expr);
     Ret = cast<MCSymbolWasm>(&Inner->getSymbol());
@@ -587,8 +607,6 @@ WasmObjectWriter::getProvisionalValue(const WasmRelocationEntry &RelEntry) {
   case wasm::R_WASM_TABLE_INDEX_I32: {
     // Provisional value is table address of the resolved symbol itself
     const MCSymbolWasm *Sym = resolveSymbol(*RelEntry.Symbol);
-    if (!Sym)
-      return 0;
     assert(Sym->isFunction());
     return TableIndices[Sym];
   }
@@ -614,7 +632,7 @@ WasmObjectWriter::getProvisionalValue(const WasmRelocationEntry &RelEntry) {
     // Provisional value is address of the global
     const MCSymbolWasm *Sym = resolveSymbol(*RelEntry.Symbol);
     // For undefined symbols, use zero
-    if (!Sym || !Sym->isDefined())
+    if (!Sym->isDefined())
       return 0;
     const wasm::WasmDataReference &Ref = DataLocations[Sym];
     const WasmDataSegment &Segment = DataSegments[Ref.Segment];

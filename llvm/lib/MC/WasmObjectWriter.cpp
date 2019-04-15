@@ -487,10 +487,10 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
     const MCExpr *Expr = SymA->getVariableValue();
     if (Expr->getKind() != MCExpr::SymbolRef) {
       Expr->dump();
-      llvm_unreachable("expression kind not supported");
+      fprintf(stderr, "The expr type is %d\n", (int)Expr->getKind());
     }
-    const auto *Inner = cast<MCSymbolRefExpr>(Expr);
-    if (Inner->getKind() == MCSymbolRefExpr::VK_WEAKREF)
+    const auto *Inner = dyn_cast<MCSymbolRefExpr>(Expr);
+    if (Inner && Inner->getKind() == MCSymbolRefExpr::VK_WEAKREF)
       llvm_unreachable("weakref used in reloc not yet implemented");
   }
 
@@ -500,6 +500,9 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
   FixedValue = 0;
 
   unsigned Type = TargetObjectWriter->getRelocType(Target, Fixup);
+  if (IsPCRel) {
+    Fixup.getValue()->dump();
+  }
   assert(!IsPCRel);
   assert(SymA);
 
@@ -556,9 +559,10 @@ static const MCSymbolWasm *resolveSymbol(const MCSymbolWasm &Symbol) {
   const MCSymbolWasm* Ret = &Symbol;
   while (Ret->isVariable()) {
     const MCExpr *Expr = Ret->getVariableValue();
-    if (Expr->getKind() != MCExpr::SymbolRef) {
+    if (Expr->getKind() == MCExpr::Binary) {
       Expr->dump();
-      llvm_unreachable("expression kind not supported");
+      fprintf(stderr, "The expr type is %d\n", (int)Expr->getKind());
+      return nullptr;
     }
     auto *Inner = cast<MCSymbolRefExpr>(Expr);
     Ret = cast<MCSymbolWasm>(&Inner->getSymbol());
@@ -583,6 +587,8 @@ WasmObjectWriter::getProvisionalValue(const WasmRelocationEntry &RelEntry) {
   case wasm::R_WASM_TABLE_INDEX_I32: {
     // Provisional value is table address of the resolved symbol itself
     const MCSymbolWasm *Sym = resolveSymbol(*RelEntry.Symbol);
+    if (!Sym)
+      return 0;
     assert(Sym->isFunction());
     return TableIndices[Sym];
   }
@@ -608,7 +614,7 @@ WasmObjectWriter::getProvisionalValue(const WasmRelocationEntry &RelEntry) {
     // Provisional value is address of the global
     const MCSymbolWasm *Sym = resolveSymbol(*RelEntry.Symbol);
     // For undefined symbols, use zero
-    if (!Sym->isDefined())
+    if (!Sym || !Sym->isDefined())
       return 0;
     const wasm::WasmDataReference &Ref = DataLocations[Sym];
     const WasmDataSegment &Segment = DataSegments[Ref.Segment];
@@ -1444,6 +1450,9 @@ uint64_t WasmObjectWriter::writeObject(MCAssembler &Asm,
     // Find the target symbol of this weak alias and export that index
     const auto &WS = static_cast<const MCSymbolWasm &>(S);
     const MCSymbolWasm *ResolvedSym = resolveSymbol(WS);
+    if (!ResolvedSym) {
+      continue;
+    }
     LLVM_DEBUG(dbgs() << WS.getName() << ": weak alias of '" << *ResolvedSym
                       << "'\n");
 

@@ -494,7 +494,6 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
   if (SymA && SymA->isVariable()) {
     const MCExpr *Expr = SymA->getVariableValue();
     if (Expr->getKind() != MCExpr::SymbolRef) {
-      Expr->dump();
       fprintf(stderr, "The expr type is %d\n", (int)Expr->getKind());
     }
     const auto *Inner = dyn_cast<MCSymbolRefExpr>(Expr);
@@ -508,9 +507,6 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
   FixedValue = 0;
 
   unsigned Type = TargetObjectWriter->getRelocType(Target, Fixup);
-  if (IsPCRel) {
-    Fixup.getValue()->dump();
-  }
   assert(!IsPCRel);
   assert(SymA);
 
@@ -585,7 +581,6 @@ static const MCSymbolWasm *resolveSymbol(const MCSymbolWasm &Symbol) {
   while (Ret->isVariable()) {
     const MCExpr *Expr = Ret->getVariableValue();
     if (Expr->getKind() == MCExpr::Binary) {
-      Expr->dump();
       fprintf(stderr, "The expr type is %d\n", (int)Expr->getKind());
       Expr = pullSymbol(Expr);
       if (!Expr) {
@@ -1194,7 +1189,6 @@ static int64_t getAliasedSymbolOffset(const MCSymbolWasm &Symbol,
   const MCExpr *Expr = Symbol.getVariableValue();
   MCValue Res;
   if (!Expr->evaluateAsRelocatable(Res, &Layout, nullptr)) {
-    Expr->dump();
     report_fatal_error("Can't evaluate alias symbol expression");
   }
   return Res.getConstant();

@@ -493,9 +493,6 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
 
   if (SymA && SymA->isVariable()) {
     const MCExpr *Expr = SymA->getVariableValue();
-    if (Expr->getKind() != MCExpr::SymbolRef) {
-      fprintf(stderr, "The expr type is %d\n", (int)Expr->getKind());
-    }
     const auto *Inner = dyn_cast<MCSymbolRefExpr>(Expr);
     if (Inner && Inner->getKind() == MCSymbolRefExpr::VK_WEAKREF)
       llvm_unreachable("weakref used in reloc not yet implemented");
@@ -581,7 +578,6 @@ static const MCSymbolWasm *resolveSymbol(const MCSymbolWasm &Symbol) {
   while (Ret->isVariable()) {
     const MCExpr *Expr = Ret->getVariableValue();
     if (Expr->getKind() == MCExpr::Binary) {
-      fprintf(stderr, "The expr type is %d\n", (int)Expr->getKind());
       Expr = pullSymbol(Expr);
       if (!Expr) {
         llvm_unreachable("can't find a symbol in this mess\n");

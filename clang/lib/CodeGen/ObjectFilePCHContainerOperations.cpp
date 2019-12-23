@@ -332,18 +332,27 @@ ObjectFilePCHContainerReader::ExtractPCH(llvm::MemoryBufferRef Buffer) const {
   if (OFOrErr) {
     auto &OF = OFOrErr.get();
     bool IsCOFF = isa<llvm::object::COFFObjectFile>(*OF);
-    // Find the clang AST section in the container.
-    for (auto &Section : OF->sections()) {
-      StringRef Name;
-      Section.getName(Name);
-      if ((!IsCOFF && Name == "__clangast") || (IsCOFF && Name == "clangast")) {
-        if (Expected<StringRef> E = Section.getContents())
-          return *E;
-        else {
-          handleAllErrors(E.takeError(), [&](const llvm::ErrorInfoBase &EIB) {
-            EIB.log(llvm::errs());
-          });
-          return "";
+    StringRef SectionName = IsCOFF ? "clangast" : "__clangast";
+
+    if (const auto &WasmOF = llvm::unique_dyn_cast<llvm::object::WasmObjectFile>(OF)) {
+      for (auto &Segment : WasmOF->dataSegments()) {
+        if (Segment.Data.Name != SectionName) continue;
+        return llvm::toStringRef(Segment.Data.Content);
+      }
+    } else {
+      // Find the clang AST section in the container.
+      for (auto &Section : OF->sections()) {
+        StringRef Name;
+        Section.getName(Name);
+        if (Name == SectionName) {
+          if (Expected<StringRef> E = Section.getContents())
+            return *E;
+          else {
+            handleAllErrors(E.takeError(), [&](const llvm::ErrorInfoBase &EIB) {
+              EIB.log(llvm::errs());
+            });
+            return "";
+          }
         }
       }
     }

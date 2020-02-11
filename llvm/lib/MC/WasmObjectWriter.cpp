@@ -480,7 +480,6 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
   FixedValue = 0;
 
   unsigned Type = TargetObjectWriter->getRelocType(Target, Fixup);
-  assert(!IsPCRel);
   assert(SymA);
 
   // Absolute offset within a section or a function.

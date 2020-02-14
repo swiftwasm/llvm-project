@@ -466,9 +466,6 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
 
   if (SymA->isVariable()) {
     const MCExpr *Expr = SymA->getVariableValue();
-    if (Expr->getKind() != MCExpr::SymbolRef) {
-      fprintf(stderr, "The expr type is %d\n", (int)Expr->getKind());
-    }
     const auto *Inner = dyn_cast<MCSymbolRefExpr>(Expr);
     if (Inner && Inner->getKind() == MCSymbolRefExpr::VK_WEAKREF)
       llvm_unreachable("weakref used in reloc not yet implemented");

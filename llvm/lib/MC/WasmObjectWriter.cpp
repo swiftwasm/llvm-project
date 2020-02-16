@@ -550,7 +550,6 @@ static const MCSymbolWasm *resolveSymbol(const MCSymbolWasm &Symbol) {
   while (Ret->isVariable()) {
     const MCExpr *Expr = Ret->getVariableValue();
     if (Expr->getKind() == MCExpr::Binary) {
-      fprintf(stderr, "The expr type is %d\n", (int)Expr->getKind());
       Expr = pullSymbol(Expr);
       if (!Expr) {
         llvm_unreachable("can't find a symbol in this mess\n");

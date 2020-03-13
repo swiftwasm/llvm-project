@@ -218,6 +218,21 @@ bool WebAssemblyExplicitLocals::runOnMachineFunction(MachineFunction &MF) {
   // Start assigning local numbers after the last parameter.
   unsigned CurLocal = static_cast<unsigned>(MFI.getParams().size());
 
+  // For swiftcc, additional swiftself and swifterror parameters are added
+  // if there aren't any. Forward the cursor for the extra parameters.
+  if (MF.getFunction().getCallingConv() == CallingConv::Swift) {
+    bool HasSwiftErrorArg = false;
+    bool HasSwiftSelfArg = false;
+    for (const auto &Arg : MF.getFunction().args()) {
+      HasSwiftErrorArg |= Arg.hasAttribute(Attribute::SwiftError);
+      HasSwiftSelfArg |= Arg.hasAttribute(Attribute::SwiftSelf);
+    }
+    if (!HasSwiftErrorArg)
+      CurLocal++;
+    if (!HasSwiftSelfArg)
+      CurLocal++;
+  }
+
   // Precompute the set of registers that are unused, so that we can insert
   // drops to their defs.
   BitVector UseEmpty(MRI.getNumVirtRegs());

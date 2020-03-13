@@ -291,6 +291,24 @@ void WebAssemblyAsmPrinter::EmitFunctionBodyStart() {
   SmallVector<MVT, 1> ResultVTs;
   SmallVector<MVT, 4> ParamVTs;
   computeSignatureVTs(F.getFunctionType(), F, TM, ParamVTs, ResultVTs);
+
+  // For swiftcc, emit additional swiftself and swifterror arguments
+  // if there aren't any. These additional arguments are also added for caller
+  // signature. They are necessary to match callee and caller signature for
+  // indirect call.
+  if (F.getCallingConv() == CallingConv::Swift) {
+    MVT PtrVT = MVT::getIntegerVT(TM.createDataLayout().getPointerSizeInBits());
+    bool HasSwiftErrorArg = false;
+    bool HasSwiftSelfArg = false;
+    for (const auto &Arg : F.args()) {
+      HasSwiftErrorArg |= Arg.hasAttribute(Attribute::SwiftError);
+      HasSwiftSelfArg |= Arg.hasAttribute(Attribute::SwiftSelf);
+    }
+    if (!HasSwiftErrorArg)
+      ParamVTs.push_back(PtrVT);
+    if (!HasSwiftSelfArg)
+      ParamVTs.push_back(PtrVT);
+  }
   auto Signature = signatureFromMVTs(ResultVTs, ParamVTs);
   auto *WasmSym = cast<MCSymbolWasm>(CurrentFnSym);
   WasmSym->setSignature(Signature.get());

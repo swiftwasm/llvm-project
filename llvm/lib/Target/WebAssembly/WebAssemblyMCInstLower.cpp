@@ -58,6 +58,26 @@ WebAssemblyMCInstLower::GetGlobalAddressSymbol(const MachineOperand &MO) const {
     SmallVector<MVT, 4> ParamMVTs;
     computeSignatureVTs(FuncTy, CurrentFunc, TM, ParamMVTs, ResultMVTs);
 
+    // For swiftcc, emit additional swiftself and swifterror parameters
+    // if there aren't any. These additional parameters are also passed for caller.
+    // They are necessary to match callee and caller signature for indirect
+    // call.
+    const auto *const F = dyn_cast<Function>(Global);
+    if (F && F->getCallingConv() == CallingConv::Swift) {
+      MVT PtrVT =
+          MVT::getIntegerVT(TM.createDataLayout().getPointerSizeInBits());
+      bool HasSwiftErrorArg = false;
+      bool HasSwiftSelfArg = false;
+      for (const auto &Arg : F->args()) {
+        HasSwiftErrorArg |= Arg.hasAttribute(Attribute::SwiftError);
+        HasSwiftSelfArg |= Arg.hasAttribute(Attribute::SwiftSelf);
+      }
+      if (!HasSwiftErrorArg)
+        ParamMVTs.push_back(PtrVT);
+      if (!HasSwiftSelfArg)
+        ParamMVTs.push_back(PtrVT);
+    }
+
     auto Signature = signatureFromMVTs(ResultMVTs, ParamMVTs);
     WasmSym->setSignature(Signature.get());
     Printer.addSignature(std::move(Signature));

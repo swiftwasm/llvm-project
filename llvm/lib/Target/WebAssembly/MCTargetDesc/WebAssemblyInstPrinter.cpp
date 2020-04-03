@@ -224,17 +224,10 @@ void WebAssemblyInstPrinter::printOperand(const MCInst *MI, unsigned OpNo,
       O << '=';
   } else if (Op.isImm()) {
     O << Op.getImm();
+  } else if (Op.isSFPImm()) {
+    O << ::toString(APFloat(Op.getSFPImm()));
   } else if (Op.isFPImm()) {
-    const MCInstrDesc &Desc = MII.get(MI->getOpcode());
-    const MCOperandInfo &Info = Desc.OpInfo[OpNo];
-    if (Info.OperandType == WebAssembly::OPERAND_F32IMM) {
-      // TODO: MC converts all floating point immediate operands to double.
-      // This is fine for numeric values, but may cause NaNs to change bits.
-      O << ::toString(APFloat(float(Op.getFPImm())));
-    } else {
-      assert(Info.OperandType == WebAssembly::OPERAND_F64IMM);
-      O << ::toString(APFloat(Op.getFPImm()));
-    }
+    O << ::toString(APFloat(Op.getFPImm()));
   } else {
     assert(Op.isExpr() && "unknown operand kind in printOperand");
     // call_indirect instructions have a TYPEINDEX operand that we print

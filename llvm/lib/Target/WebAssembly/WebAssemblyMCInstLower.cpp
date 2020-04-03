@@ -291,11 +291,9 @@ void WebAssemblyMCInstLower::lower(const MachineInstr *MI,
       MCOp = MCOperand::createImm(MO.getImm());
       break;
     case MachineOperand::MO_FPImmediate: {
-      // TODO: MC converts all floating point immediate operands to double.
-      // This is fine for numeric values, but may cause NaNs to change bits.
       const ConstantFP *Imm = MO.getFPImm();
       if (Imm->getType()->isFloatTy())
-        MCOp = MCOperand::createFPImm(Imm->getValueAPF().convertToFloat());
+        MCOp = MCOperand::createSFPImm(Imm->getValueAPF().convertToFloat());
       else if (Imm->getType()->isDoubleTy())
         MCOp = MCOperand::createFPImm(Imm->getValueAPF().convertToDouble());
       else

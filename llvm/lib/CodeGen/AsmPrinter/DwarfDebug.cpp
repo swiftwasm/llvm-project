@@ -572,6 +572,18 @@ struct FwdRegParamInfo {
 /// Register worklist for finding call site values.
 using FwdRegWorklist = MapVector<unsigned, SmallVector<FwdRegParamInfo, 2>>;
 
+/// Append the expression \p Addition to \p Original and return the result.
+static const DIExpression *combineDIExpressions(const DIExpression *Original,
+                                                const DIExpression *Addition) {
+  std::vector<uint64_t> Elts = Addition->getElements().vec();
+  // Avoid multiple DW_OP_stack_values.
+  if (Original->isImplicit() && Addition->isImplicit())
+    erase_if(Elts, [](uint64_t Op) { return Op == dwarf::DW_OP_stack_value; });
+  const DIExpression *CombinedExpr =
+      (Elts.size() > 0) ? DIExpression::append(Original, Elts) : Original;
+  return CombinedExpr;
+}
+
 /// Emit call site parameter entries that are described by the given value and
 /// debug expression.
 template <typename ValT>
@@ -591,9 +603,8 @@ static void finishCallSiteParams(ValT Val, const DIExpression *Expr,
     // parameter when walking through the instructions. Append that to the
     // base expression.
     const DIExpression *CombinedExpr =
-        ShouldCombineExpressions
-            ? DIExpression::append(Expr, Param.Expr->getElements())
-            : Expr;
+        ShouldCombineExpressions ? combineDIExpressions(Expr, Param.Expr)
+                                 : Expr;
     assert((!CombinedExpr || CombinedExpr->isValid()) &&
            "Combined debug expression is invalid");
 
@@ -623,12 +634,7 @@ static void addToFwdRegWorklist(FwdRegWorklist &Worklist, unsigned Reg,
     // instructions we may have already created an expression for the
     // parameter when walking through the instructions. Append that to the
     // new expression.
-    const DIExpression *CombinedExpr =
-        (Param.Expr->getNumElements() > 0)
-            ? DIExpression::append(Expr, Param.Expr->getElements())
-            : Expr;
-    assert(CombinedExpr->isValid() && "Combined debug expression is invalid");
-
+    const DIExpression *CombinedExpr = combineDIExpressions(Expr, Param.Expr);
     ParamsForFwdReg.push_back({Param.ParamReg, CombinedExpr});
   }
 }
@@ -872,16 +878,21 @@ void DwarfDebug::constructCallSiteEntryDIEs(const DISubprogram &SP,
       const MachineInstr *TopLevelCallMI =
           MI.isInsideBundle() ? &*getBundleStart(MI.getIterator()) : &MI;
 
-      // For tail calls, no return PC information is needed.
-      // For regular calls (and tail calls in GDB tuning), the return PC
-      // is needed to disambiguate paths in the call graph which could lead to
-      // some target function.
+      // For non-tail calls, the return PC is needed to disambiguate paths in
+      // the call graph which could lead to some target function. For tail
+      // calls, no return PC information is needed, unless tuning for GDB in
+      // DWARF4 mode in which case we fake a return PC for compatibility.
       const MCSymbol *PCAddr =
-          (IsTail && !tuneForGDB())
-              ? nullptr
-              : const_cast<MCSymbol *>(getLabelAfterInsn(TopLevelCallMI));
+          (!IsTail || CU.useGNUAnalogForDwarf5Feature())
+              ? const_cast<MCSymbol *>(getLabelAfterInsn(TopLevelCallMI))
+              : nullptr;
 
-      assert((IsTail || PCAddr) && "Call without return PC information");
+      // For tail calls, it's necessary to record the address of the branch
+      // instruction so that the debugger can show where the tail call occurred.
+      const MCSymbol *CallAddr =
+          IsTail ? getLabelBeforeInsn(TopLevelCallMI) : nullptr;
+
+      assert((IsTail || PCAddr) && "Non-tail call without return PC");
 
       LLVM_DEBUG(dbgs() << "CallSiteEntry: " << MF.getName() << " -> "
                         << (CalleeDecl ? CalleeDecl->getName()
@@ -890,8 +901,8 @@ void DwarfDebug::constructCallSiteEntryDIEs(const DISubprogram &SP,
                                                        ->getName(CallReg)))
                         << (IsTail ? " [IsTail]" : "") << "\n");
 
-      DIE &CallSiteDIE = CU.constructCallSiteEntryDIE(ScopeDIE, CalleeDIE,
-                                                      IsTail, PCAddr, CallReg);
+      DIE &CallSiteDIE = CU.constructCallSiteEntryDIE(
+          ScopeDIE, CalleeDIE, IsTail, PCAddr, CallAddr, CallReg);
 
       // Optionally emit call-site-param debug info.
       if (emitDebugEntryValues()) {
@@ -1458,11 +1469,24 @@ static bool validThroughout(LexicalScopes &LScopes,
   if (LSRange.size() == 0)
     return false;
 
+  // If this range is neither open ended nor a constant, then it is not a
+  // candidate for being validThroughout.
+  if (RangeEnd && !DbgValue->getOperand(0).isImm())
+    return false;
+
   // Determine if the DBG_VALUE is valid at the beginning of its lexical block.
   const MachineInstr *LScopeBegin = LSRange.front().first;
   // Early exit if the lexical scope begins outside of the current block.
   if (LScopeBegin->getParent() != MBB)
     return false;
+
+  // If there are instructions belonging to our scope in another block, and
+  // we're not a constant (see DWARF2 comment below), then we can't be
+  // validThroughout.
+  const MachineInstr *LScopeEnd = LSRange.back().second;
+  if (RangeEnd && LScopeEnd->getParent() != MBB)
+    return false;
+
   MachineBasicBlock::const_reverse_iterator Pred(DbgValue);
   for (++Pred; Pred != MBB->rend(); ++Pred) {
     if (Pred->getFlag(MachineInstr::FrameSetup))
@@ -1482,11 +1506,6 @@ static bool validThroughout(LexicalScopes &LScopes,
   // If the range of the DBG_VALUE is open-ended, report success.
   if (!RangeEnd)
     return true;
-
-  // Fail if there are instructions belonging to our scope in another block.
-  const MachineInstr *LScopeEnd = LSRange.back().second;
-  if (LScopeEnd->getParent() != MBB)
-    return false;
 
   // Single, constant DBG_VALUEs in the prologue are promoted to be live
   // throughout the function. This is a hack, presumably for DWARF v2 and not
@@ -1780,11 +1799,32 @@ void DwarfDebug::collectEntityInfo(DwarfCompileUnit &TheCU,
 
 // Process beginning of an instruction.
 void DwarfDebug::beginInstruction(const MachineInstr *MI) {
+  const MachineFunction &MF = *MI->getMF();
+  const auto *SP = MF.getFunction().getSubprogram();
+  bool NoDebug =
+      !SP || SP->getUnit()->getEmissionKind() == DICompileUnit::NoDebug;
+
+  // When describing calls, we need a label for the call instruction.
+  // TODO: Add support for targets with delay slots.
+  if (!NoDebug && SP->areAllCallsDescribed() &&
+      MI->isCandidateForCallSiteEntry(MachineInstr::AnyInBundle) &&
+      !MI->hasDelaySlot()) {
+    const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+    bool IsTail = TII->isTailCall(*MI);
+    // For tail calls, we need the address of the branch instruction for
+    // DW_AT_call_pc.
+    if (IsTail)
+      requestLabelBeforeInsn(MI);
+    // For non-tail calls, we need the return address for the call for
+    // DW_AT_call_return_pc. Under GDB tuning, this information is needed for
+    // tail calls as well.
+    requestLabelAfterInsn(MI);
+  }
+
   DebugHandlerBase::beginInstruction(MI);
   assert(CurMI);
 
-  const auto *SP = MI->getMF()->getFunction().getSubprogram();
-  if (!SP || SP->getUnit()->getEmissionKind() == DICompileUnit::NoDebug)
+  if (NoDebug)
     return;
 
   // Check if source location changes, but ignore DBG_VALUE and CFI locations.
@@ -1797,11 +1837,6 @@ void DwarfDebug::beginInstruction(const MachineInstr *MI) {
   // the last line number actually emitted, to see if it was line 0.
   unsigned LastAsmLine =
       Asm->OutStreamer->getContext().getCurrentDwarfLoc().getLine();
-
-  // Request a label after the call in order to emit AT_return_pc information
-  // in call site entries. TODO: Add support for targets with delay slots.
-  if (SP->areAllCallsDescribed() && MI->isCall() && !MI->hasDelaySlot())
-    requestLabelAfterInsn(MI);
 
   if (DL == PrevInstLoc) {
     // If we have an ongoing unspecified location, nothing to do here.

@@ -1685,6 +1685,11 @@ MemberExpr *MemberExpr::Create(
     CXXRecordDecl *RD = dyn_cast_or_null<CXXRecordDecl>(DC);
     if (RD && RD->isDependentContext() && RD->isCurrentInstantiation(DC))
       E->setTypeDependent(T->isDependentType());
+
+    // Bitfield with value-dependent width is type-dependent.
+    FieldDecl *FD = dyn_cast<FieldDecl>(MemberDecl);
+    if (FD && FD->isBitField() && FD->getBitWidth()->isValueDependent())
+      E->setTypeDependent(true);
   }
 
   if (HasQualOrFound) {
@@ -3206,6 +3211,9 @@ bool Expr::isConstantInitializer(ASTContext &Ctx, bool IsForRef,
 
   switch (getStmtClass()) {
   default: break;
+  case Stmt::ExprWithCleanupsClass:
+    return cast<ExprWithCleanups>(this)->getSubExpr()->isConstantInitializer(
+        Ctx, IsForRef, Culprit);
   case StringLiteralClass:
   case ObjCEncodeExprClass:
     return true;

@@ -396,7 +396,8 @@ let Command = "frame recognizer add" in {
     "to.">;
   def frame_recognizer_function : Option<"function", "n">, Arg<"Name">,
     Completion<"Symbol">,
-    Desc<"Name of the function that this recognizer applies to.">;
+    Desc<"Name of the function that this recognizer applies to. "
+         "Can be specified more than once except if -x|--regex is provided.">;
   def frame_recognizer_python_class : Option<"python-class", "l">, Group<2>,
     Arg<"PythonClass">,
     Desc<"Give the name of a Python class to use for this frame recognizer.">;
@@ -975,6 +976,11 @@ let Command = "thread plan list" in {
     Desc<"Display more information about the thread plans">;
   def thread_plan_list_internal : Option<"internal", "i">, Group<1>,
     Desc<"Display internal as well as user thread plans">;
+  def thread_plan_list_thread_id : Option<"thread-id", "t">, Group<1>,
+    Arg<"ThreadID">, Desc<"List the thread plans for this TID, can be "
+    "specified more than once.">;
+  def thread_plan_list_unreported : Option<"unreported", "u">, Group<1>,
+    Desc<"Display thread plans for unreported threads">;
 }
 
 let Command = "type summary add" in {

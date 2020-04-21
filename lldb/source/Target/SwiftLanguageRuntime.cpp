@@ -19,12 +19,13 @@
 #include "lldb/Core/Section.h"
 #include "lldb/Core/ValueObjectConstResult.h"
 #include "lldb/DataFormatters/StringPrinter.h"
+#include "lldb/Expression/ExpressionVariable.h"
 #include "lldb/Host/OptionParser.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/CommandObject.h"
 #include "lldb/Interpreter/CommandObjectMultiword.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
-#include "lldb/Symbol/TypeSystemClang.h"
+#include "Plugins/TypeSystem/Clang/TypeSystemClang.h"
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/VariableList.h"
 #include "lldb/Target/RegisterContext.h"
@@ -46,6 +47,7 @@
 // FIXME: we should not need this
 #include "Plugins/Language/Swift/SwiftFormatters.h"
 #include "Plugins/Language/Swift/SwiftRuntimeFailureRecognizer.h"
+#include "Plugins/ExpressionParser/Clang/ClangExpressionVariable.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -190,9 +192,10 @@ public:
 
 #define STUB_LOG()                                                             \
   do {                                                                         \
-    LLDB_LOG(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_EXPRESSIONS |  \
-                                                    LIBLLDB_LOG_TYPES),        \
-             g_stub_log_message, GetStandardLibraryName(m_process));           \
+    LLDB_LOGF(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_EXPRESSIONS | \
+                                                     LIBLLDB_LOG_TYPES),       \
+              g_stub_log_message,                                              \
+              GetStandardLibraryName(m_process).AsCString());                  \
     assert(false && "called into swift language runtime stub");                \
   } while (0)
 

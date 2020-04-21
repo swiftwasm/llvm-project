@@ -13,7 +13,7 @@
 #include "SwiftLanguageRuntimeImpl.h"
 #include "lldb/Target/SwiftLanguageRuntime.h"
 
-#include "lldb/Symbol/TypeSystemClang.h"
+#include "Plugins/TypeSystem/Clang/TypeSystemClang.h"
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/Variable.h"
 #include "lldb/Symbol/VariableList.h"
@@ -1518,11 +1518,11 @@ bool SwiftLanguageRuntimeImpl::GetDynamicTypeAndAddress(
                                                 class_type_or_name, address);
   else {
     // Perform archetype binding in the scratch context.
-    auto *frame = in_value.GetExecutionContextRef().GetFrameSP().get();
+    StackFrameSP frame = in_value.GetExecutionContextRef().GetFrameSP();
     if (!frame)
       return false;
 
-    CompilerType bound_type = DoArchetypeBindingForType(*frame, val_type);
+    CompilerType bound_type = DoArchetypeBindingForType(*frame.get(), val_type);
     if (!bound_type)
       return false;
 

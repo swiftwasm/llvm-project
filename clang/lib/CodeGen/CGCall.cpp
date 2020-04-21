@@ -2080,6 +2080,7 @@ void CodeGenModule::ConstructAttributeList(
     hasUsedSRet = true;
     if (RetAI.getInReg())
       SRETAttrs.addAttribute(llvm::Attribute::InReg);
+    SRETAttrs.addAlignmentAttr(RetAI.getIndirectAlign().getQuantity());
     ArgAttrs[IRFunctionArgs.getSRetArgNo()] =
         llvm::AttributeSet::get(getLLVMContext(), SRETAttrs);
   }
@@ -4690,6 +4691,11 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   // we can't use the full cleanup mechanism.
   for (CallLifetimeEnd &LifetimeEnd : CallLifetimeEndAfterCall)
     LifetimeEnd.Emit(*this, /*Flags=*/{});
+
+  if (!ReturnValue.isExternallyDestructed() &&
+      RetTy.isDestructedType() == QualType::DK_nontrivial_c_struct)
+    pushDestroy(QualType::DK_nontrivial_c_struct, Ret.getAggregateAddress(),
+                RetTy);
 
   return Ret;
 }

@@ -8,6 +8,8 @@
 
 #include "lldb/Target/Target.h"
 #include "Plugins/ExpressionParser/Clang/ClangModulesDeclVendor.h"
+#include "Plugins/ExpressionParser/Clang/ClangModulesDeclVendor.h"
+#include "Plugins/ExpressionParser/Clang/ClangPersistentVariables.h"
 #include "lldb/Breakpoint/BreakpointIDList.h"
 #include "lldb/Breakpoint/BreakpointPrecondition.h"
 #include "lldb/Breakpoint/BreakpointResolver.h"
@@ -37,10 +39,11 @@
 #include "lldb/Interpreter/OptionGroupWatchpoint.h"
 #include "lldb/Interpreter/OptionValues.h"
 #include "lldb/Interpreter/Property.h"
-#include "lldb/Symbol/TypeSystemClang.h"
-#include "lldb/Symbol/ClangASTImporter.h"
+#include "Plugins/TypeSystem/Clang/TypeSystemClang.h"
+#include "Plugins/ExpressionParser/Clang/ClangASTImporter.h"
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/ObjectFile.h"
+#include "lldb/Symbol/SwiftASTContext.h"
 #include "lldb/Symbol/Symbol.h"
 #include "lldb/Symbol/SymbolFile.h"
 #include "lldb/Symbol/SymbolVendor.h"
@@ -117,6 +120,8 @@ Target::Target(Debugger &debugger, const ArchSpec &target_arch,
              target_arch.GetArchitectureName(),
              target_arch.GetTriple().getTriple().c_str());
   }
+
+  UpdateLaunchInfoFromProperties();
 }
 
 Target::~Target() {
@@ -264,6 +269,16 @@ void Target::SetREPL(lldb::LanguageType language, lldb::REPLSP repl_sp) {
   lldbassert(!m_repl_map.count(language));
 
   m_repl_map[language] = repl_sp;
+
+  if (language == eLanguageTypeSwift) {
+    // The DWARFImporter always claims to be able to load a module, even if it
+    // doesn't exist, because it doesn't "import" anything until the first type is
+    // requested. To make the REPL behave more like the compiler and diagnose when
+    // Clang modules can't be located up front, the DWARFImporter is disabled in
+    // the REPL. There are use-cases for loading Clang types from debug info, but
+    // this needs a better diagnostic mechanism before it can be enabled.
+    ModuleList::GetGlobalModuleListProperties().SetUseSwiftDWARFImporter(repl_sp == NULL);
+  }
 }
 
 void Target::Destroy() {
@@ -3283,11 +3298,6 @@ Status Target::Launch(ProcessLaunchInfo &launch_info, Stream *stream) {
       }
     }
     m_process_sp->RestoreProcessEvents();
-  } else {
-    Status error2;
-    error2.SetErrorStringWithFormat("process launch failed: %s",
-                                    error.AsCString());
-    error = error2;
   }
   return error;
 }
@@ -3673,16 +3683,13 @@ enum {
 
 class TargetOptionValueProperties : public OptionValueProperties {
 public:
-  TargetOptionValueProperties(ConstString name)
-      : OptionValueProperties(name), m_target(nullptr), m_got_host_env(false) {}
+  TargetOptionValueProperties(ConstString name) : OptionValueProperties(name) {}
 
   // This constructor is used when creating TargetOptionValueProperties when it
   // is part of a new lldb_private::Target instance. It will copy all current
   // global property values as needed
-  TargetOptionValueProperties(Target *target,
-                              const TargetPropertiesSP &target_properties_sp)
-      : OptionValueProperties(*target_properties_sp->GetValueProperties()),
-        m_target(target), m_got_host_env(false) {}
+  TargetOptionValueProperties(const TargetPropertiesSP &target_properties_sp)
+      : OptionValueProperties(*target_properties_sp->GetValueProperties()) {}
 
   const Property *GetPropertyAtIndex(const ExecutionContext *exe_ctx,
                                      bool will_modify,
@@ -3690,9 +3697,6 @@ public:
     // When getting the value for a key from the target options, we will always
     // try and grab the setting from the current target if there is one. Else
     // we just use the one from this instance.
-    if (idx == ePropertyEnvVars)
-      GetHostEnvironmentIfNeeded();
-
     if (exe_ctx) {
       Target *target = exe_ctx->GetTargetPtr();
       if (target) {
@@ -3705,41 +3709,6 @@ public:
     }
     return ProtectedGetPropertyAtIndex(idx);
   }
-
-  lldb::TargetSP GetTargetSP() { return m_target->shared_from_this(); }
-
-protected:
-  void GetHostEnvironmentIfNeeded() const {
-    if (!m_got_host_env) {
-      if (m_target) {
-        m_got_host_env = true;
-        const uint32_t idx = ePropertyInheritEnv;
-        if (GetPropertyAtIndexAsBoolean(
-                nullptr, idx, g_target_properties[idx].default_uint_value != 0)) {
-          PlatformSP platform_sp(m_target->GetPlatform());
-          if (platform_sp) {
-            Environment env = platform_sp->GetEnvironment();
-            OptionValueDictionary *env_dict =
-                GetPropertyAtIndexAsOptionValueDictionary(nullptr,
-                                                          ePropertyEnvVars);
-            if (env_dict) {
-              const bool can_replace = false;
-              for (const auto &KV : env) {
-                // Don't allow existing keys to be replaced with ones we get
-                // from the platform environment
-                env_dict->SetValueForKey(
-                    ConstString(KV.first()),
-                    OptionValueSP(new OptionValueString(KV.second.c_str())),
-                    can_replace);
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-  Target *m_target;
-  mutable bool m_got_host_env;
 };
 
 // TargetProperties
@@ -3766,10 +3735,10 @@ TargetExperimentalProperties::TargetExperimentalProperties()
 
 // TargetProperties
 TargetProperties::TargetProperties(Target *target)
-    : Properties(), m_launch_info() {
+    : Properties(), m_launch_info(), m_target(target) {
   if (target) {
     m_collection_sp = std::make_shared<TargetOptionValueProperties>(
-        target, Target::GetGlobalProperties());
+        Target::GetGlobalProperties());
 
     // Set callbacks to update launch_info whenever "settins set" updated any
     // of these properties
@@ -3779,6 +3748,12 @@ TargetProperties::TargetProperties(Target *target)
         ePropertyRunArgs, TargetProperties::RunArgsValueChangedCallback, this);
     m_collection_sp->SetValueChangedCallback(
         ePropertyEnvVars, TargetProperties::EnvVarsValueChangedCallback, this);
+    m_collection_sp->SetValueChangedCallback(
+        ePropertyUnsetEnvVars, TargetProperties::EnvVarsValueChangedCallback,
+        this);
+    m_collection_sp->SetValueChangedCallback(
+        ePropertyInheritEnv, TargetProperties::EnvVarsValueChangedCallback,
+        this);
     m_collection_sp->SetValueChangedCallback(
         ePropertyInputPath, TargetProperties::InputPathValueChangedCallback,
         this);
@@ -3804,18 +3779,6 @@ TargetProperties::TargetProperties(Target *target)
         ConstString("Experimental settings - setting these won't produce "
                     "errors if the setting is not present."),
         true, m_experimental_properties_up->GetValueProperties());
-
-    // Update m_launch_info once it was created
-    Arg0ValueChangedCallback(this, nullptr);
-    RunArgsValueChangedCallback(this, nullptr);
-    // EnvVarsValueChangedCallback(this, nullptr); // FIXME: cause segfault in
-    // Target::GetPlatform()
-    InputPathValueChangedCallback(this, nullptr);
-    OutputPathValueChangedCallback(this, nullptr);
-    ErrorPathValueChangedCallback(this, nullptr);
-    DetachOnErrorValueChangedCallback(this, nullptr);
-    DisableASLRValueChangedCallback(this, nullptr);
-    DisableSTDIOValueChangedCallback(this, nullptr);
   } else {
     m_collection_sp =
         std::make_shared<TargetOptionValueProperties>(ConstString("target"));
@@ -3833,6 +3796,18 @@ TargetProperties::TargetProperties(Target *target)
 }
 
 TargetProperties::~TargetProperties() = default;
+
+void TargetProperties::UpdateLaunchInfoFromProperties() {
+  Arg0ValueChangedCallback(this, nullptr);
+  RunArgsValueChangedCallback(this, nullptr);
+  EnvVarsValueChangedCallback(this, nullptr);
+  InputPathValueChangedCallback(this, nullptr);
+  OutputPathValueChangedCallback(this, nullptr);
+  ErrorPathValueChangedCallback(this, nullptr);
+  DetachOnErrorValueChangedCallback(this, nullptr);
+  DisableASLRValueChangedCallback(this, nullptr);
+  DisableSTDIOValueChangedCallback(this, nullptr);
+}
 
 bool TargetProperties::GetInjectLocalVariables(
     ExecutionContext *exe_ctx) const {
@@ -3868,6 +3843,32 @@ bool TargetProperties::GetSwiftCreateModuleContextsInParallel() const {
         nullptr, ePropertySwiftCreateModuleContextsInParallel, true);
   else
     return true;
+}
+
+bool TargetProperties::GetOSPluginReportsAllThreads() const {
+  const bool fail_value = true;
+  const Property *exp_property =
+      m_collection_sp->GetPropertyAtIndex(nullptr, true, ePropertyExperimental);
+  OptionValueProperties *exp_values =
+      exp_property->GetValue()->GetAsProperties();
+  if (!exp_values)
+    return fail_value;
+    
+  return 
+      exp_values->GetPropertyAtIndexAsBoolean(nullptr, 
+                                              ePropertyOSPluginReportsAllThreads,
+                                              fail_value);
+}
+
+void TargetProperties::SetOSPluginReportsAllThreads(bool does_report) {
+  const Property *exp_property =
+      m_collection_sp->GetPropertyAtIndex(nullptr, true, ePropertyExperimental);
+  OptionValueProperties *exp_values =
+      exp_property->GetValue()->GetAsProperties();
+  if (exp_values)
+    exp_values->SetPropertyAtIndexAsBoolean(nullptr, 
+                                            ePropertyOSPluginReportsAllThreads,
+                                            does_report);
 }
 
 ArchSpec TargetProperties::GetDefaultArchitecture() const {
@@ -3987,19 +3988,43 @@ void TargetProperties::SetRunArguments(const Args &args) {
   m_launch_info.GetArguments() = args;
 }
 
+Environment TargetProperties::ComputeEnvironment() const {
+  Environment env;
+
+  if (m_target &&
+      m_collection_sp->GetPropertyAtIndexAsBoolean(
+          nullptr, ePropertyInheritEnv,
+          g_target_properties[ePropertyInheritEnv].default_uint_value != 0)) {
+    if (auto platform_sp = m_target->GetPlatform()) {
+      Environment platform_env = platform_sp->GetEnvironment();
+      for (const auto &KV : platform_env)
+        env[KV.first()] = KV.second;
+    }
+  }
+
+  Args property_unset_env;
+  m_collection_sp->GetPropertyAtIndexAsArgs(nullptr, ePropertyUnsetEnvVars,
+                                            property_unset_env);
+  for (const auto &var : property_unset_env)
+    env.erase(var.ref());
+
+  Args property_env;
+  m_collection_sp->GetPropertyAtIndexAsArgs(nullptr, ePropertyEnvVars,
+                                            property_env);
+  for (const auto &KV : Environment(property_env))
+    env[KV.first()] = KV.second;
+
+  return env;
+}
+
 Environment TargetProperties::GetEnvironment() const {
-  // TODO: Get rid of the Args intermediate step
-  Args env;
-  const uint32_t idx = ePropertyEnvVars;
-  m_collection_sp->GetPropertyAtIndexAsArgs(nullptr, idx, env);
-  return Environment(env);
+  return ComputeEnvironment();
 }
 
 void TargetProperties::SetEnvironment(Environment env) {
   // TODO: Get rid of the Args intermediate step
   const uint32_t idx = ePropertyEnvVars;
   m_collection_sp->SetPropertyAtIndexFromArgs(nullptr, idx, Args(env));
-  m_launch_info.GetEnvironment() = std::move(env);
 }
 
 bool TargetProperties::GetSkipPrologue() const {
@@ -4359,7 +4384,7 @@ void TargetProperties::EnvVarsValueChangedCallback(void *target_property_ptr,
                                                    OptionValue *) {
   TargetProperties *this_ =
       static_cast<TargetProperties *>(target_property_ptr);
-  this_->m_launch_info.GetEnvironment() = this_->GetEnvironment();
+  this_->m_launch_info.GetEnvironment() = this_->ComputeEnvironment();
 }
 
 void TargetProperties::InputPathValueChangedCallback(void *target_property_ptr,

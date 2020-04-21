@@ -1428,6 +1428,10 @@ unsigned DwarfLinker::DIECloner::cloneAddressAttribute(
     if (Die.getTag() == dwarf::DW_TAG_call_site)
       Addr = (Info.OrigCallReturnPc ? Info.OrigCallReturnPc : Addr) +
              Info.PCOffset;
+  } else if (AttrSpec.Attr == dwarf::DW_AT_call_pc) {
+    // Relocate the address of a branch instruction within a call site entry.
+    if (Die.getTag() == dwarf::DW_TAG_call_site)
+      Addr = (Info.OrigCallPc ? Info.OrigCallPc : Addr) + Info.PCOffset;
   }
 
   Die.addValue(DIEAlloc, static_cast<dwarf::Attribute>(AttrSpec.Attr),
@@ -2324,6 +2328,14 @@ static uint64_t getDwoId(const DWARFDie &CUDie, const DWARFUnit &Unit) {
   return 0;
 }
 
+static std::string remapPath(StringRef Path,
+                             const objectPrefixMap &ObjectPrefixMap) {
+  for (const auto &Entry : ObjectPrefixMap)
+    if (Path.startswith(Entry.first))
+      return (Twine(Entry.second) + Path.substr(Entry.first.size())).str();
+  return Path.str();
+}
+
 bool DwarfLinker::registerModuleReference(
     DWARFDie CUDie, const DWARFUnit &Unit, DebugMap &ModuleMap,
     const DebugMapObject &DMO, RangesTy &Ranges, OffsetsStringPool &StringPool,
@@ -2334,6 +2346,8 @@ bool DwarfLinker::registerModuleReference(
       CUDie.find({dwarf::DW_AT_dwo_name, dwarf::DW_AT_GNU_dwo_name}), "");
   if (PCMfile.empty())
     return false;
+  if (ObjectPrefixMap)
+    PCMfile = remapPath(PCMfile, *ObjectPrefixMap);
 
   // Clang module DWARF skeleton CUs abuse this for the path to the module.
   uint64_t DwoId = getDwoId(CUDie, Unit);
@@ -2748,6 +2762,8 @@ bool DwarfLinker::link(const DebugMap &Map) {
   if (!createStreamer(Map.getTriple(), OutFile))
     return false;
 
+  setObjectPrefixMap(&Options.ObjectPrefixMap);
+ 
   // Size of the DIEs (and headers) generated for the linked output.
   OutputDebugInfoSize = 0;
   // A unique ID that identifies each compile unit.
@@ -2773,7 +2789,11 @@ bool DwarfLinker::link(const DebugMap &Map) {
   // This Dwarf string pool which is used for emission. It must be used
   // serially as the order of calling getStringOffset matters for
   // reproducibility.
-  OffsetsStringPool OffsetsStringPool(Options.Translator, true);
+  std::function<StringRef(StringRef)> TranslationLambda =
+      Options.Translator
+          ? [&](StringRef Input) { return Options.Translator(Input); }
+          : static_cast<std::function<StringRef(StringRef)>>(nullptr);
+  OffsetsStringPool OffsetsStringPool(TranslationLambda, true);
 
   // ODR Contexts for the link.
   DeclContextTree ODRContexts;

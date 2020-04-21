@@ -9,11 +9,11 @@
 
 #include "ObjCLanguageRuntime.h"
 
+#include "Plugins/TypeSystem/Clang/TypeSystemClang.h"
 #include "lldb/Core/MappedHash.h"
 #include "lldb/Core/Module.h"
 #include "lldb/Core/PluginManager.h"
 #include "lldb/Core/ValueObject.h"
-#include "lldb/Symbol/TypeSystemClang.h"
 #include "lldb/Symbol/SymbolContext.h"
 #include "lldb/Symbol/SymbolFile.h"
 #include "lldb/Symbol/Type.h"
@@ -129,7 +129,7 @@ ObjCLanguageRuntime::LookupInCompleteClassCache(ConstString &name) {
 
       if (TypeSystemClang::IsObjCObjectOrInterfaceType(
               type_sp->GetForwardCompilerType())) {
-        if (type_sp->IsCompleteObjCClass()) {
+        if (TypePayloadClang(type_sp->GetPayload()).IsCompleteObjCClass()) {
           m_complete_class_cache[name] = type_sp;
           return type_sp;
         }

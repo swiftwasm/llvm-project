@@ -770,6 +770,11 @@ def err_ptrauth_string_not_literal : Error<
 def err_ptrauth_type_disc_variably_modified : Error<
    "cannot pass variably-modified type %0 to "
    "'__builtin_ptrauth_type_discriminator'">;
+def note_ptrauth_virtual_function_pointer_incomplete_arg_ret :
+  Note<"cannot take an address of a virtual member function if its return or "
+       "argument types are incomplete">;
+def note_ptrauth_virtual_function_incomplete_arg_ret_type :
+  Note<"%0 is incomplete">;
 
 // __ptrauth qualifier
 def err_ptrauth_qualifier_return : Error<
@@ -4130,6 +4135,10 @@ def note_ovl_candidate_bad_ownership : Note<
     "%select{no|__unsafe_unretained|__strong|__weak|__autoreleasing}4 ownership,"
     " but parameter has %select{no|__unsafe_unretained|__strong|__weak|"
     "__autoreleasing}5 ownership">;
+def note_ovl_candidate_bad_ptrauth : Note<
+    "candidate %sub{select_ovl_candidate_kind}0,1,2 not viable: "
+    "%ordinal8 argument (%3) has %select{no ptrauth|%5}4 qualifier,"
+    " but parameter has %select{no ptrauth|%7}6 qualifier">;
 def note_ovl_candidate_bad_cvr_this : Note<
     "candidate %sub{select_ovl_candidate_kind}0,1,2 not viable: "
     "'this' argument has type %3, but method is not marked "
@@ -5500,6 +5509,8 @@ def note_enters_block_captures_weak : Note<
 def note_enters_block_captures_non_trivial_c_struct : Note<
   "jump enters lifetime of block which captures a C struct that is non-trivial "
   "to destroy">;
+def note_enters_compound_literal_scope : Note<
+  "jump enters lifetime of a compound literal that is non-trivial to destruct">;
 
 def note_exits_cleanup : Note<
   "jump exits scope of variable with __attribute__((cleanup))">;
@@ -5543,6 +5554,8 @@ def note_exits_block_captures_weak : Note<
 def note_exits_block_captures_non_trivial_c_struct : Note<
   "jump exits lifetime of block which captures a C struct that is non-trivial "
   "to destroy">;
+def note_exits_compound_literal_scope : Note<
+  "jump exits lifetime of a compound literal that is non-trivial to destruct">;
 
 def err_func_returning_qualified_void : ExtWarn<
   "function cannot return qualified void type %0">,

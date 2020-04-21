@@ -1123,6 +1123,20 @@ bool GDBRemoteCommunicationClient::GetDefaultThreadId(lldb::tid_t &tid) {
   return true;
 }
 
+static void ParseOSType(llvm::StringRef value, std::string &os_name,
+                        std::string &environment) {
+  if (value.equals("iossimulator") || value.equals("tvossimulator") ||
+      value.equals("watchossimulator")) {
+    environment = "simulator";
+    os_name = value.drop_back(environment.size()).str();
+  } else if (value.equals("maccatalyst")) {
+    os_name = "ios";
+    environment = "macabi";
+  } else {
+    os_name = value.str();
+  }
+}
+
 bool GDBRemoteCommunicationClient::GetHostInfo(bool force) {
   Log *log(ProcessGDBRemoteLog::GetLogIfAnyCategoryIsSet(GDBR_LOG_PROCESS));
 
@@ -1181,11 +1195,7 @@ bool GDBRemoteCommunicationClient::GetHostInfo(bool force) {
             extractor.GetHexByteString(m_os_kernel);
             ++num_keys_decoded;
           } else if (name.equals("ostype")) {
-            if (value.equals("maccatalyst")) {
-              os_name = "ios";
-              environment = "macabi";
-            } else
-              os_name = value;
+            ParseOSType(value, os_name, environment);
             ++num_keys_decoded;
           } else if (name.equals("vendor")) {
             vendor_name = value;
@@ -2045,11 +2055,7 @@ bool GDBRemoteCommunicationClient::GetCurrentProcessInfo(bool allow_lazy) {
           extractor.GetHexByteString(triple);
           ++num_keys_decoded;
         } else if (name.equals("ostype")) {
-          if (value.equals("maccatalyst")) {
-            os_name = "ios";
-            environment = "macabi";
-          } else
-            os_name = value;
+          ParseOSType(value, os_name, environment);
           ++num_keys_decoded;
         } else if (name.equals("vendor")) {
           vendor_name = value;
@@ -2140,7 +2146,7 @@ bool GDBRemoteCommunicationClient::GetCurrentProcessInfo(bool allow_lazy) {
 uint32_t GDBRemoteCommunicationClient::FindProcesses(
     const ProcessInstanceInfoMatch &match_info,
     ProcessInstanceInfoList &process_infos) {
-  process_infos.Clear();
+  process_infos.clear();
 
   if (m_supports_qfProcessInfo) {
     StreamString packet;
@@ -2220,7 +2226,7 @@ uint32_t GDBRemoteCommunicationClient::FindProcesses(
         ProcessInstanceInfo process_info;
         if (!DecodeProcessInfoResponse(response, process_info))
           break;
-        process_infos.Append(process_info);
+        process_infos.push_back(process_info);
         response = StringExtractorGDBRemote();
       } while (SendPacketAndWaitForResponse("qsProcessInfo", response, false) ==
                PacketResult::Success);
@@ -2229,7 +2235,7 @@ uint32_t GDBRemoteCommunicationClient::FindProcesses(
       return 0;
     }
   }
-  return process_infos.GetSize();
+  return process_infos.size();
 }
 
 bool GDBRemoteCommunicationClient::GetUserName(uint32_t uid,

@@ -5,6 +5,7 @@ add_lldb_unittest(SymbolTests
   TestClangASTImporter.cpp
   TestDWARFCallFrameInfo.cpp
   TestType.cpp
+  TestTypeSystemSwiftTypeRef.cpp
   TestSwiftASTContext.cpp
   TestLineEntry.cpp
 
@@ -16,6 +17,8 @@ add_lldb_unittest(SymbolTests
     lldbPluginObjectFileMachO
     lldbPluginSymbolFileDWARF
     lldbPluginSymbolFileSymtab
+    lldbPluginTypeSystemClang
+    lldbPluginPlatformMacOSX
     LLVMTestingSupport
   )
 

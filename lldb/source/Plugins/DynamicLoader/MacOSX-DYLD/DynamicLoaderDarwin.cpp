@@ -16,7 +16,6 @@
 #include "lldb/Core/Section.h"
 #include "lldb/Expression/DiagnosticManager.h"
 #include "lldb/Host/FileSystem.h"
-#include "lldb/Symbol/TypeSystemClang.h"
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Target/ABI.h"
@@ -32,6 +31,7 @@
 #include "lldb/Utility/State.h"
 
 #include "Plugins/LanguageRuntime/ObjC/ObjCLanguageRuntime.h"
+#include "Plugins/TypeSystem/Clang/TypeSystemClang.h"
 
 //#define ENABLE_DEBUG_PRINTF // COMMENT THIS LINE OUT PRIOR TO CHECKIN
 #ifdef ENABLE_DEBUG_PRINTF
@@ -399,6 +399,15 @@ bool DynamicLoaderDarwin::JSONImageInformationIntoImageInfo(
       else if (os_name == "maccatalyst") {
         image_infos[i].os_type = llvm::Triple::IOS;
         image_infos[i].os_env = llvm::Triple::MacABI;
+      } else if (os_name == "iossimulator") {
+        image_infos[i].os_type = llvm::Triple::IOS;
+        image_infos[i].os_env = llvm::Triple::Simulator;
+      } else if (os_name == "tvossimulator") {
+        image_infos[i].os_type = llvm::Triple::TvOS;
+        image_infos[i].os_env = llvm::Triple::Simulator;
+      } else if (os_name == "watchossimulator") {
+        image_infos[i].os_type = llvm::Triple::WatchOS;
+        image_infos[i].os_env = llvm::Triple::Simulator;
       }
     }
     if (image->HasKey("min_version_os_sdk")) {

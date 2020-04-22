@@ -99,6 +99,11 @@ class LLDBTest(TestFormat):
             timeoutInfo = 'Reached timeout of {} seconds'.format(
                 litConfig.maxIndividualTestTime)
 
+        if sys.version_info.major == 2:
+            # In Python 2, string objects can contain Unicode characters.
+            out = out.decode('utf-8')
+            err = err.decode('utf-8')
+
         output = """Script:\n--\n%s\n--\nExit Code: %d\n""" % (
             ' '.join(cmd), exitCode)
         if timeoutInfo is not None:
@@ -114,13 +119,11 @@ class LLDBTest(TestFormat):
             return lit.Test.TIMEOUT, output
 
         if exitCode:
-            # Match FAIL but not XFAIL.
-            for line in out.splitlines() + err.splitlines():
-                if line.startswith('FAIL:'):
-                    return lit.Test.FAIL, output
-
             if 'XPASS:' in out or 'XPASS:' in err:
                 return lit.Test.XPASS, output
+
+            # Otherwise this is just a failure.
+            return lit.Test.FAIL, output
 
         has_unsupported_tests = 'UNSUPPORTED:' in out or 'UNSUPPORTED:' in err
         has_passing_tests = 'PASS:' in out or 'PASS:' in err

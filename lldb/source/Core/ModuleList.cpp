@@ -125,10 +125,21 @@ FileSpec ModuleListProperties::GetClangModulesCachePath() const {
 }
 
 // BEGIN SWIFT
-bool ModuleListProperties::GetUseDWARFImporter() const {
-  const uint32_t idx = ePropertyUseDWARFImporter;
+bool ModuleListProperties::GetUseSwiftClangImporter() const {
+  const uint32_t idx = ePropertyUseSwiftClangImporter;
   return m_collection_sp->GetPropertyAtIndexAsBoolean(
       NULL, idx, g_modulelist_properties[idx].default_uint_value != 0);
+}
+
+bool ModuleListProperties::GetUseSwiftDWARFImporter() const {
+  const uint32_t idx = ePropertyUseSwiftDWARFImporter;
+  return m_collection_sp->GetPropertyAtIndexAsBoolean(
+      NULL, idx, g_modulelist_properties[idx].default_uint_value != 0);
+}
+
+bool ModuleListProperties::SetUseSwiftDWARFImporter(bool new_value) {
+    return m_collection_sp->SetPropertyAtIndexAsBoolean(
+            nullptr, ePropertyUseSwiftDWARFImporter, new_value);
 }
 // END SWIFT
 

@@ -49,7 +49,9 @@ class ModuleListProperties : public Properties {
 public:
   ModuleListProperties();
 
-  bool GetUseDWARFImporter() const;
+  bool GetUseSwiftClangImporter() const;
+  bool GetUseSwiftDWARFImporter() const;
+  bool SetUseSwiftDWARFImporter(bool new_value);
   FileSpec GetClangModulesCachePath() const;
   bool SetClangModulesCachePath(llvm::StringRef path);
   SwiftModuleLoadingMode GetSwiftModuleLoadingMode() const;

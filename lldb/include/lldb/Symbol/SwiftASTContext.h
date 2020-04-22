@@ -20,6 +20,7 @@
 #include "lldb/Core/ThreadSafeDenseSet.h"
 #include "lldb/Symbol/CompilerType.h"
 #include "lldb/Symbol/TypeSystem.h"
+#include "lldb/Symbol/SymbolFile.h"
 #include "lldb/Utility/ConstString.h"
 #include "lldb/lldb-private.h"
 
@@ -38,6 +39,7 @@ enum class IRGenDebugInfoLevel : unsigned;
 class CanType;
 class DependencyTracker;
 class DWARFImporterDelegate;
+struct ImplicitImportInfo;
 class IRGenOptions;
 class NominalTypeDecl;
 class SearchPathOptions;
@@ -47,6 +49,11 @@ class ModuleDecl;
 class SourceFile;
 struct PrintOptions;
 class MemoryBufferSerializedModuleLoader;
+namespace Demangle {
+class Demangler;
+class Node;
+using NodePointer = Node *;
+} // namespace Demangle
 namespace irgen {
 class FixedTypeInfo;
 class TypeInfo;
@@ -69,6 +76,30 @@ struct SourceModule;
 class SwiftASTContext;
 CompilerType ToCompilerType(swift::Type qual_type);
 
+/// The implementation of lldb::Type's m_payload field for TypeSystemSwift.
+class TypePayloadSwift {
+  /// Layout: bit 1 ... IsFixedValueBuffer.
+  Type::Payload m_payload = 0;
+
+  static constexpr unsigned FixedValueBufferBit = 1;
+public:
+  TypePayloadSwift() = default;
+  explicit TypePayloadSwift(bool is_fixed_value_buffer);
+  explicit TypePayloadSwift(Type::Payload opaque_payload)
+      : m_payload(opaque_payload) {}
+  operator Type::Payload() { return m_payload; }
+
+  /// \return whether this is a Swift fixed-size buffer. Resilient variables in
+  /// fixed-size buffers may be indirect depending on the runtime size of the
+  /// type. This is more a property of the value than of its type.
+  bool IsFixedValueBuffer() { return Flags(m_payload).Test(FixedValueBufferBit); }
+  void SetIsFixedValueBuffer(bool is_fixed_value_buffer) {
+    m_payload = is_fixed_value_buffer
+                    ? Flags(m_payload).Set(FixedValueBufferBit)
+                    : Flags(m_payload).Clear(FixedValueBufferBit);
+  }
+};
+  
 /// Abstract base class for all Swift TypeSystems.
 ///
 /// Swift CompilerTypes are either a mangled name or a Swift AST
@@ -125,6 +156,65 @@ public:
                                    bool print_help_if_available,
                                    bool print_extensions_if_available) = 0;
 
+  /// Unavailable hardcoded functions that don't make sense for Swift.
+  /// \{
+  ConstString DeclContextGetName(void *opaque_decl_ctx) override { return {}; }
+  ConstString DeclContextGetScopeQualifiedName(void *opaque_decl_ctx) override {
+    return {};
+  }
+  bool
+  DeclContextIsClassMethod(void *opaque_decl_ctx,
+                           lldb::LanguageType *language_ptr,
+                           bool *is_instance_method_ptr,
+                           ConstString *language_object_name_ptr) override {
+    return false;
+  }
+  bool IsRuntimeGeneratedType(void *type) override { return false; }
+  bool IsCharType(void *type) override { return false; }
+  bool IsCompleteType(void *type) override { return true; }
+  bool IsConst(void *type) override { return false; }
+  bool IsCStringType(void *type, uint32_t &length) override { return false; }
+  bool IsVectorType(void *type, CompilerType *element_type,
+                    uint64_t *size) override {
+    return false;
+  }
+  uint32_t IsHomogeneousAggregate(void *type,
+                                  CompilerType *base_type_ptr) override {
+    return 0;
+  }
+  bool IsBlockPointerType(void *type,
+                          CompilerType *function_pointer_type_ptr) override {
+    return false;
+  }
+  bool IsPolymorphicClass(void *type) override { return false; }
+  bool IsBeingDefined(void *type) override { return false; }
+  bool CanPassInRegisters(const CompilerType &type) override {
+    // FIXME: Implement this. There was an abort() here to figure out which
+    // tests where hitting this code. At least TestSwiftReturns and
+    // TestSwiftStepping were failing because of this Darwin.
+    return false;
+  }
+  unsigned GetTypeQualifiers(void *type) override { return 0; }
+  CompilerType GetTypeForDecl(void *opaque_decl) override {
+    llvm_unreachable("GetTypeForDecl not implemented");
+  }
+  CompilerType GetBasicTypeFromAST(lldb::BasicType basic_type) override {
+    return {};
+  }
+  const llvm::fltSemantics &GetFloatTypeSemantics(size_t byte_size) override {
+    // See: https://reviews.llvm.org/D67239. At this time of writing this API
+    // is only used by DumpDataExtractor for the C type system.
+    llvm_unreachable("GetFloatTypeSemantics not implemented.");
+  }
+  lldb::BasicType GetBasicTypeEnumeration(void *type) override {
+    return lldb::eBasicTypeInvalid;
+  }
+  uint32_t GetNumVirtualBaseClasses(void *opaque_type) override { return 0; }
+  CompilerType GetVirtualBaseClassAtIndex(void *opaque_type, size_t idx,
+                                          uint32_t *bit_offset_ptr) override {
+    return {};
+  }
+  /// \}
 protected:
   /// Used in the logs.
   std::string m_description;
@@ -150,6 +240,7 @@ public:
   swift::CanType GetCanonicalSwiftType(CompilerType compiler_type);
   swift::Type GetSwiftType(CompilerType compiler_type);
   CompilerType ReconstructType(CompilerType type);
+  CompilerType GetTypeFromMangledTypename(ConstString mangled_typename);
 
   // PluginInterface functions
   ConstString GetPluginName() override;
@@ -172,12 +263,6 @@ public:
     return {};
   }
 
-  ConstString DeclContextGetName(void *opaque_decl_ctx) override;
-  ConstString DeclContextGetScopeQualifiedName(void *opaque_decl_ctx) override;
-  bool DeclContextIsClassMethod(void *opaque_decl_ctx,
-                                lldb::LanguageType *language_ptr,
-                                bool *is_instance_method_ptr,
-                                ConstString *language_object_name_ptr) override;
   bool DeclContextIsContainedInLookup(void *opaque_decl_ctx,
                                       void *other_opaque_decl_ctx) override {
     if (opaque_decl_ctx == other_opaque_decl_ctx)
@@ -192,8 +277,6 @@ public:
   bool IsArrayType(void *type, CompilerType *element_type, uint64_t *size,
                    bool *is_incomplete) override;
   bool IsAggregateType(void *type) override;
-  bool IsCharType(void *type) override;
-  bool IsCompleteType(void *type) override;
   bool IsDefined(void *type) override;
   bool IsFloatingPointType(void *type, uint32_t &count,
                            bool &is_complex) override;
@@ -202,8 +285,6 @@ public:
   CompilerType GetFunctionArgumentAtIndex(void *type,
                                           const size_t index) override;
   bool IsFunctionPointerType(void *type) override;
-  bool IsBlockPointerType(void *type,
-                          CompilerType *function_pointer_type_ptr) override;
   bool IsIntegerType(void *type, bool &is_signed) override;
   bool IsPossibleDynamicType(void *type,
                              CompilerType *target_type, // Can pass NULL
@@ -211,7 +292,6 @@ public:
   bool IsPointerType(void *type, CompilerType *pointee_type) override;
   bool IsScalarType(void *type) override;
   bool IsVoidType(void *type) override;
-  bool CanPassInRegisters(const CompilerType &type) override;
   // Type Completion
   bool GetCompleteType(void *type) override;
   // AST related queries
@@ -238,7 +318,6 @@ public:
   CompilerType GetPointerType(void *type) override;
 
   // Exploring the type
-  const llvm::fltSemantics &GetFloatTypeSemantics(size_t byte_size) override;
   llvm::Optional<uint64_t>
   GetBitSize(lldb::opaque_compiler_type_t type,
              ExecutionContextScope *exe_scope) override;
@@ -249,7 +328,6 @@ public:
   lldb::Format GetFormat(void *type) override;
   uint32_t GetNumChildren(void *type, bool omit_empty_base_classes,
                           const ExecutionContext *exe_ctx) override;
-  lldb::BasicType GetBasicTypeEnumeration(void *type) override;
   uint32_t GetNumFields(void *type) override;
   CompilerType GetFieldAtIndex(void *type, size_t idx, std::string &name,
                                uint64_t *bit_offset_ptr,
@@ -297,41 +375,26 @@ public:
 
   void DumpTypeDescription(void *type) override;
   void DumpTypeDescription(void *type, Stream *s) override;
-  bool IsRuntimeGeneratedType(void *type) override;
   void DumpSummary(void *type, ExecutionContext *exe_ctx, Stream *s,
                    const DataExtractor &data, lldb::offset_t data_offset,
                    size_t data_byte_size) override;
   bool IsPointerOrReferenceType(void *type,
                                 CompilerType *pointee_type) override;
-  unsigned GetTypeQualifiers(void *type) override;
-  bool IsCStringType(void *type, uint32_t &length) override;
   llvm::Optional<size_t>
   GetTypeBitAlign(void *type, ExecutionContextScope *exe_scope) override;
-  CompilerType GetBasicTypeFromAST(lldb::BasicType basic_type) override;
   CompilerType GetBuiltinTypeForEncodingAndBitSize(lldb::Encoding encoding,
                                                    size_t bit_size) override {
     return CompilerType();
   }
-  bool IsBeingDefined(void *type) override;
-  bool IsConst(void *type) override;
-  uint32_t IsHomogeneousAggregate(void *type,
-                                  CompilerType *base_type_ptr) override;
-  bool IsPolymorphicClass(void *type) override;
   bool IsTypedefType(void *type) override;
   CompilerType GetTypedefedType(void *type) override;
-  CompilerType GetTypeForDecl(void *opaque_decl) override;
-  bool IsVectorType(void *type, CompilerType *element_type,
-                    uint64_t *size) override;
   CompilerType GetFullyUnqualifiedType(void *type) override;
   CompilerType GetNonReferenceType(void *type) override;
   CompilerType GetLValueReferenceType(void *type) override;
   CompilerType GetRValueReferenceType(void *opaque_type) override;
   uint32_t GetNumDirectBaseClasses(void *opaque_type) override;
-  uint32_t GetNumVirtualBaseClasses(void *opaque_type) override;
   CompilerType GetDirectBaseClassAtIndex(void *opaque_type, size_t idx,
                                          uint32_t *bit_offset_ptr) override;
-  CompilerType GetVirtualBaseClassAtIndex(void *opaque_type, size_t idx,
-                                          uint32_t *bit_offset_ptr) override;
   bool IsReferenceType(void *type, CompilerType *pointee_type,
                        bool *is_rvalue) override;
   bool
@@ -354,8 +417,23 @@ public:
                            bool print_extensions_if_available) override;
 
 private:
+  /// Helper that creates an AST type from \p type.
   void *ReconstructType(void *type);
+  /// Cast \p opaque_type as a mangled name.
+  const char *AsMangledName(void *opaque_type);
 
+  /// Wrap \p node as \p Global(TypeMangling(node)), remangle the type
+  /// and create a CompilerType from it.
+  CompilerType RemangleAsType(swift::Demangle::Demangler &Dem,
+                              swift::Demangle::NodePointer node);
+
+  /// Demangle the mangled name of the canonical type of \p type and
+  /// drill into the Global(TypeMangling(Type())).
+  ///
+  /// \return the child of Type or a nullptr.
+  swift::Demangle::NodePointer
+  DemangleCanonicalType(swift::Demangle::Demangler &Dem, void *opaque_type);
+  /// The sibling SwiftASTContext.
   SwiftASTContext *m_swift_ast_context = nullptr;
 };
 
@@ -518,7 +596,13 @@ public:
   /// \return the ExtraArgs of the ClangImporterOptions.
   const std::vector<std::string> &GetClangArguments();
 
-  swift::ModuleDecl *CreateModule(const SourceModule &module, Status &error);
+  /// Attempt to create a Swift module, returning \c nullptr and setting
+  /// \p error if unsuccessful.
+  ///
+  /// \param importInfo Information about which modules should be implicitly
+  /// imported by each file of the module.
+  swift::ModuleDecl *CreateModule(const SourceModule &module, Status &error,
+                                  swift::ImplicitImportInfo importInfo);
 
   // This function should only be called when all search paths
   // for all items in a swift::ASTContext have been setup to
@@ -583,6 +667,7 @@ public:
 
   /// Reconstruct a Swift AST type from a mangled name by looking its
   /// components up in Swift modules.
+  swift::TypeBase *ReconstructType(ConstString mangled_typename);
   swift::TypeBase *ReconstructType(ConstString mangled_typename, Status &error);
   CompilerType GetTypeFromMangledTypename(ConstString mangled_typename);
 
@@ -638,6 +723,7 @@ public:
   void ClearDiagnostics();
 
   bool SetColorizeDiagnostics(bool b);
+  void AddErrorStatusAsGenericDiagnostic(Status error);
 
   void PrintDiagnostics(DiagnosticManager &diagnostic_manager,
                         uint32_t bufferID = UINT32_MAX, uint32_t first_line = 0,
@@ -695,15 +781,6 @@ public:
     return {};
   }
 
-  ConstString DeclContextGetName(void *opaque_decl_ctx) override;
-
-  ConstString DeclContextGetScopeQualifiedName(void *opaque_decl_ctx) override;
-
-  bool DeclContextIsClassMethod(void *opaque_decl_ctx,
-                                lldb::LanguageType *language_ptr,
-                                bool *is_instance_method_ptr,
-                                ConstString *language_object_name_ptr) override;
-
   bool DeclContextIsContainedInLookup(void *opaque_decl_ctx,
                                       void *other_opaque_decl_ctx) override {
     if (opaque_decl_ctx == other_opaque_decl_ctx)
@@ -722,10 +799,6 @@ public:
 
   bool IsAggregateType(void *type) override;
 
-  bool IsCharType(void *type) override;
-
-  bool IsCompleteType(void *type) override;
-
   bool IsDefined(void *type) override;
 
   bool IsFloatingPointType(void *type, uint32_t &count,
@@ -740,9 +813,6 @@ public:
 
   bool IsFunctionPointerType(void *type) override;
 
-  bool IsBlockPointerType(void *type,
-                          CompilerType *function_pointer_type_ptr) override;
-
   bool IsIntegerType(void *type, bool &is_signed) override;
 
   bool IsPossibleDynamicType(void *type,
@@ -754,8 +824,6 @@ public:
   bool IsScalarType(void *type) override;
 
   bool IsVoidType(void *type) override;
-
-  bool CanPassInRegisters(const CompilerType &type) override;
 
   static bool IsGenericType(const CompilerType &compiler_type);
 
@@ -849,8 +917,6 @@ public:
 
   // Exploring the type
 
-  const llvm::fltSemantics &GetFloatTypeSemantics(size_t byte_size) override;
-
   llvm::Optional<uint64_t>
   GetBitSize(lldb::opaque_compiler_type_t type,
              ExecutionContextScope *exe_scope) override;
@@ -865,8 +931,6 @@ public:
 
   uint32_t GetNumChildren(void *type, bool omit_empty_base_classes,
                           const ExecutionContext *exe_ctx) override;
-
-  lldb::BasicType GetBasicTypeEnumeration(void *type) override;
 
   uint32_t GetNumFields(void *type) override;
 
@@ -952,8 +1016,6 @@ public:
 
   // TODO: These methods appear unused. Should they be removed?
 
-  bool IsRuntimeGeneratedType(void *type) override;
-
   void DumpSummary(void *type, ExecutionContext *exe_ctx, Stream *s,
                    const DataExtractor &data, lldb::offset_t data_offset,
                    size_t data_byte_size) override;
@@ -963,28 +1025,13 @@ public:
   bool IsPointerOrReferenceType(void *type,
                                 CompilerType *pointee_type) override;
 
-  unsigned GetTypeQualifiers(void *type) override;
-
-  bool IsCStringType(void *type, uint32_t &length) override;
-
   llvm::Optional<size_t>
   GetTypeBitAlign(void *type, ExecutionContextScope *exe_scope) override;
-
-  CompilerType GetBasicTypeFromAST(lldb::BasicType basic_type) override;
 
   CompilerType GetBuiltinTypeForEncodingAndBitSize(lldb::Encoding encoding,
                                                    size_t bit_size) override {
     return CompilerType();
   }
-
-  bool IsBeingDefined(void *type) override;
-
-  bool IsConst(void *type) override;
-
-  uint32_t IsHomogeneousAggregate(void *type,
-                                  CompilerType *base_type_ptr) override;
-
-  bool IsPolymorphicClass(void *type) override;
 
   bool IsTypedefType(void *type) override;
 
@@ -994,11 +1041,6 @@ public:
   CompilerType GetUnboundType(lldb::opaque_compiler_type_t type);
 
   std::string GetSuperclassName(const CompilerType &superclass_type);
-
-  CompilerType GetTypeForDecl(void *opaque_decl) override;
-
-  bool IsVectorType(void *type, CompilerType *element_type,
-                    uint64_t *size) override;
 
   CompilerType GetFullyUnqualifiedType(void *type) override;
 
@@ -1010,13 +1052,8 @@ public:
 
   uint32_t GetNumDirectBaseClasses(void *opaque_type) override;
 
-  uint32_t GetNumVirtualBaseClasses(void *opaque_type) override;
-
   CompilerType GetDirectBaseClassAtIndex(void *opaque_type, size_t idx,
                                          uint32_t *bit_offset_ptr) override;
-
-  CompilerType GetVirtualBaseClassAtIndex(void *opaque_type, size_t idx,
-                                          uint32_t *bit_offset_ptr) override;
 
   bool IsReferenceType(void *type, CompilerType *pointee_type,
                        bool *is_rvalue) override;
@@ -1034,16 +1071,30 @@ public:
 
   void SetCachedType(ConstString mangled, const lldb::TypeSP &type_sp) override;
 
-  static bool PerformUserImport(SwiftASTContext &swift_ast_context,
-                                SymbolContext &sc,
-                                ExecutionContextScope &exe_scope,
-                                lldb::StackFrameWP &stack_frame_wp,
-                                swift::SourceFile &source_file, Status &error);
+  /// Retrieves the modules that need to be implicitly imported in a given
+  /// execution scope. This includes the modules imported by both the compile
+  /// unit as well as any imports from previous expression evaluations.
+  static bool
+  GetImplicitImports(SwiftASTContext &swift_ast_context, SymbolContext &sc,
+                     ExecutionContextScope &exe_scope,
+                     lldb::StackFrameWP &stack_frame_wp,
+                     llvm::SmallVectorImpl<swift::ModuleDecl *> &modules,
+                     Status &error);
 
-  static bool PerformAutoImport(SwiftASTContext &swift_ast_context,
-                                SymbolContext &sc,
-                                lldb::StackFrameWP &stack_frame_wp,
-                                swift::SourceFile *source_file, Status &error);
+  /// Cache the user's imports from a SourceFile in a given execution scope such
+  /// that they are carried over into future expression evaluations.
+  static bool CacheUserImports(SwiftASTContext &swift_ast_context,
+                               SymbolContext &sc,
+                               ExecutionContextScope &exe_scope,
+                               lldb::StackFrameWP &stack_frame_wp,
+                               swift::SourceFile &source_file, Status &error);
+
+  /// Retrieve the modules imported by the compilation unit.
+  static bool
+  GetCompileUnitImports(SwiftASTContext &swift_ast_context, SymbolContext &sc,
+                        lldb::StackFrameWP &stack_frame_wp,
+                        llvm::SmallVectorImpl<swift::ModuleDecl *> &modules,
+                        Status &error);
 
 protected:
   /// This map uses the string value of ConstStrings as the key, and the

@@ -25,8 +25,8 @@
 
 #include "clang/AST/DeclObjC.h"
 
+#include "Plugins/TypeSystem/Clang/TypeSystemClang.h"
 #include "lldb/Core/Module.h"
-#include "lldb/Symbol/TypeSystemClang.h"
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/ObjectFile.h"
@@ -130,7 +130,7 @@ lldb::TypeSP DWARFASTParserSwift::ParseTypeFromDWARF(const SymbolContext &sc,
       if (auto wrapped_type = get_type(die.GetFirstChild())) {
         // Create a unique pointer for the type + fixed buffer flag.
         type_sp.reset(new Type(*wrapped_type));
-        type_sp->SetSwiftFixedValueBuffer(true);
+        type_sp->SetPayload(TypePayloadSwift(true));
         return type_sp;
       }
     }

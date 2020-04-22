@@ -637,6 +637,9 @@ ExprResult Sema::DefaultLvalueConversion(Expr *E) {
   if (E->getType().getObjCLifetime() == Qualifiers::OCL_Weak)
     Cleanup.setExprNeedsCleanups(true);
 
+  if (E->getType().isDestructedType() == QualType::DK_nontrivial_c_struct)
+    Cleanup.setExprNeedsCleanups(true);
+
   // C++ [conv.lval]p3:
   //   If T is cv std::nullptr_t, the result is a null pointer constant.
   CastKind CK = T->isNullPtrType() ? CK_NullToPointer : CK_LValueToRValue;
@@ -6231,13 +6234,23 @@ Sema::BuildCompoundLiteralExpr(SourceLocation LParenLoc, TypeSourceInfo *TInfo,
     return ExprError();
   }
 
-  // Compound literals that have automatic storage duration are destroyed at
-  // the end of the scope. Emit diagnostics if it is or contains a C union type
-  // that is non-trivial to destruct.
-  if (!isFileScope)
+  if (!isFileScope && !getLangOpts().CPlusPlus) {
+    // Compound literals that have automatic storage duration are destroyed at
+    // the end of the scope in C; in C++, they're just temporaries.
+
+    // Emit diagnostics if it is or contains a C union type that is non-trivial
+    // to destruct.
     if (E->getType().hasNonTrivialToPrimitiveDestructCUnion())
       checkNonTrivialCUnion(E->getType(), E->getExprLoc(),
                             NTCUC_CompoundLiteral, NTCUK_Destruct);
+
+    // Diagnose jumps that enter or exit the lifetime of the compound literal.
+    if (literalType.isDestructedType()) {
+      Cleanup.setExprNeedsCleanups(true);
+      ExprCleanupObjects.push_back(E);
+      getCurFunction()->setHasBranchProtectedScope();
+    }
+  }
 
   if (E->getType().hasNonTrivialToPrimitiveDefaultInitializeCUnion() ||
       E->getType().hasNonTrivialToPrimitiveCopyCUnion())
@@ -8251,7 +8264,7 @@ Sema::CheckAssignmentConstraints(SourceLocation Loc,
 /// type ElementType.
 static bool isVector(QualType QT, QualType ElementType) {
   if (const VectorType *VT = QT->getAs<VectorType>())
-    return VT->getElementType() == ElementType;
+    return VT->getElementType().getCanonicalType() == ElementType;
   return false;
 }
 
@@ -12529,6 +12542,39 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
 
     QualType MPTy = Context.getMemberPointerType(
         op->getType(), Context.getTypeDeclType(MD->getParent()).getTypePtr());
+
+    if (getLangOpts().PointerAuthCalls && MD->isVirtual() &&
+        !isUnevaluatedContext() && !MPTy->isDependentType()) {
+      // When pointer authentication is enabled, argument and return types of
+      // vitual member functions must be complete. This is because vitrual
+      // member function pointers are implemented using virtual dispatch
+      // thunks and the thunks cannot be emitted if the argument or return
+      // types are incomplete.
+      auto ReturnOrParamTypeIsIncomplete = [&](QualType T,
+                                               SourceLocation DeclRefLoc,
+                                               SourceLocation RetArgTypeLoc) {
+        if (RequireCompleteType(DeclRefLoc, T, diag::err_incomplete_type)) {
+          Diag(DeclRefLoc,
+               diag::note_ptrauth_virtual_function_pointer_incomplete_arg_ret);
+          Diag(RetArgTypeLoc,
+               diag::note_ptrauth_virtual_function_incomplete_arg_ret_type)
+              << T;
+          return true;
+        }
+        return false;
+      };
+      QualType RetTy = MD->getReturnType();
+      bool IsIncomplete =
+          !RetTy->isVoidType() &&
+          ReturnOrParamTypeIsIncomplete(
+              RetTy, OpLoc, MD->getReturnTypeSourceRange().getBegin());
+      for (auto *PVD : MD->parameters())
+        IsIncomplete |= ReturnOrParamTypeIsIncomplete(PVD->getType(), OpLoc,
+                                                      PVD->getBeginLoc());
+      if (IsIncomplete)
+        return QualType();
+    }
+
     // Under the MS ABI, lock down the inheritance model now.
     if (Context.getTargetInfo().getCXXABI().isMicrosoft())
       (void)isCompleteType(OpLoc, MPTy);
@@ -12908,10 +12954,27 @@ CorrectDelayedTyposInBinOp(Sema &S, BinaryOperatorKind Opc, Expr *LHSExpr,
 /// Returns true if conversion between vectors of halfs and vectors of floats
 /// is needed.
 static bool needsConversionOfHalfVec(bool OpRequiresConversion, ASTContext &Ctx,
-                                     QualType SrcType) {
-  return OpRequiresConversion && !Ctx.getLangOpts().NativeHalfType &&
-         !Ctx.getTargetInfo().useFP16ConversionIntrinsics() &&
-         isVector(SrcType, Ctx.HalfTy);
+                                     Expr *E0, Expr *E1 = nullptr) {
+  if (!OpRequiresConversion || Ctx.getLangOpts().NativeHalfType ||
+      Ctx.getTargetInfo().useFP16ConversionIntrinsics())
+    return false;
+
+  auto HasVectorOfHalfType = [&Ctx](Expr *E) {
+    QualType Ty = E->IgnoreImplicit()->getType();
+
+    // Don't promote half precision neon vectors like float16x4_t in arm_neon.h
+    // to vectors of floats. Although the element type of the vectors is __fp16,
+    // the vectors shouldn't be treated as storage-only types. See the
+    // discussion here: https://reviews.llvm.org/rG825235c140e7
+    if (const VectorType *VT = Ty->getAs<VectorType>()) {
+      if (VT->getVectorKind() == VectorType::NeonVector)
+        return false;
+      return VT->getElementType().getCanonicalType() == Ctx.HalfTy;
+    }
+    return false;
+  };
+
+  return HasVectorOfHalfType(E0) && (!E1 || HasVectorOfHalfType(E1));
 }
 
 /// CreateBuiltinBinOp - Creates a new built-in binary operation with
@@ -13146,8 +13209,8 @@ ExprResult Sema::CreateBuiltinBinOp(SourceLocation OpLoc,
   assert(isVector(RHS.get()->getType(), Context.HalfTy) ==
          isVector(LHS.get()->getType(), Context.HalfTy) &&
          "both sides are half vectors or neither sides are");
-  ConvertHalfVec = needsConversionOfHalfVec(ConvertHalfVec, Context,
-                                            LHS.get()->getType());
+  ConvertHalfVec =
+      needsConversionOfHalfVec(ConvertHalfVec, Context, LHS.get(), RHS.get());
 
   // Check for array bounds violations for both sides of the BinaryOperator
   CheckArrayAccess(LHS.get());
@@ -13639,8 +13702,7 @@ ExprResult Sema::CreateBuiltinUnaryOp(SourceLocation OpLoc,
     // float vector and truncating the result back to a half vector. For now, we
     // do this only when HalfArgsAndReturns is set (that is, when the target is
     // arm or arm64).
-    ConvertHalfVec =
-        needsConversionOfHalfVec(true, Context, Input.get()->getType());
+    ConvertHalfVec = needsConversionOfHalfVec(true, Context, Input.get());
 
     // If the operand is a half vector, promote it to a float vector.
     if (ConvertHalfVec)

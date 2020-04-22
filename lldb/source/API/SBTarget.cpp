@@ -11,6 +11,7 @@
 
 #include "lldb/lldb-public.h"
 
+#include "Plugins/TypeSystem/Clang/TypeSystemClang.h"
 #include "lldb/API/SBBreakpoint.h"
 #include "lldb/API/SBDebugger.h"
 #include "lldb/API/SBEvent.h"
@@ -43,7 +44,6 @@
 #include "lldb/Core/ValueObjectList.h"
 #include "lldb/Core/ValueObjectVariable.h"
 #include "lldb/Host/Host.h"
-#include "lldb/Symbol/TypeSystemClang.h"
 #include "lldb/Symbol/DeclVendor.h"
 #include "lldb/Symbol/ObjectFile.h"
 #include "lldb/Symbol/SymbolFile.h"
@@ -376,10 +376,19 @@ SBProcess SBTarget::Launch(SBListener &listener, char const **argv,
     Module *exe_module = target_sp->GetExecutableModulePointer();
     if (exe_module)
       launch_info.SetExecutableFile(exe_module->GetPlatformFileSpec(), true);
-    if (argv)
+    if (argv) {
       launch_info.GetArguments().AppendArguments(argv);
-    if (envp)
+    } else {
+      auto default_launch_info = target_sp->GetProcessLaunchInfo();
+      launch_info.GetArguments().AppendArguments(
+          default_launch_info.GetArguments());
+    }
+    if (envp) {
       launch_info.GetEnvironment() = Environment(envp);
+    } else {
+      auto default_launch_info = target_sp->GetProcessLaunchInfo();
+      launch_info.GetEnvironment() = default_launch_info.GetEnvironment();
+    }
 
     if (listener.IsValid())
       launch_info.SetListener(listener.GetSP());

@@ -531,7 +531,7 @@ AddRequiredAliases(Block *block, lldb::StackFrameSP &stack_frame_sp,
   // extend the referent:
   imported_self_type =
       llvm::cast<TypeSystemSwift>(imported_self_type.GetTypeSystem())
-          ->GetReferentType(imported_self_type);
+          ->GetReferentType(imported_self_type.GetOpaqueQualType());
 
   // If we are extending a generic class it's going to be a metatype,
   // and we have to grab the instance type:
@@ -553,7 +553,6 @@ AddRequiredAliases(Block *block, lldb::StackFrameSP &stack_frame_sp,
   if (swift::WeakStorageType *weak_storage_type =
           GetSwiftType(imported_self_type)->getAs<swift::WeakStorageType>()) {
     swift::Type referent_type = weak_storage_type->getReferentType();
-
     swift::BoundGenericEnumType *optional_type =
         referent_type->getAs<swift::BoundGenericEnumType>();
 
@@ -1685,9 +1684,24 @@ unsigned SwiftExpressionParser::Parse(DiagnosticManager &diagnostic_manager,
   }
 
   if (!m_module) {
-    diagnostic_manager.PutString(
-        eDiagnosticSeverityError,
-        "Couldn't IRGen expression, no additional error");
+    auto &warnings = swift_ast_ctx->GetModuleImportWarnings();
+    for (StringRef message : warnings) {
+      // FIXME: Don't store diagnostics as strings.
+      auto severity = eDiagnosticSeverityWarning;
+      if (message.consume_front("warning: "))
+        severity = eDiagnosticSeverityWarning;
+      if (message.consume_front("error: "))
+        severity = eDiagnosticSeverityError;
+      diagnostic_manager.PutString(severity, message);
+    }
+    std::string error = "couldn't IRGen expression";
+    diagnostic_manager.Printf(
+        eDiagnosticSeverityError, "couldn't IRGen expression. %s",
+        warnings.empty()
+            ? "Please enable the expression log by running \"log enable lldb "
+              "expr\", then run the failing expression again, and file a "
+              "bugreport with the log output."
+            : "Please check the above error messages for possible root causes.");
     return 1;
   }
 

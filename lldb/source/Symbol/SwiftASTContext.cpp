@@ -894,6 +894,12 @@ static std::string GetClangModulesCacheProperty() {
   return path.str();
 }
 
+#ifndef NDEBUG
+SwiftASTContext::SwiftASTContext() : m_typeref_typesystem(this) {
+  llvm::dbgs() << "Initialized mock SwiftASTContext\n";
+}
+#endif
+
 SwiftASTContext::SwiftASTContext(std::string description, llvm::Triple triple,
                                  Target *target)
     : TypeSystemSwift(), m_typeref_typesystem(this),
@@ -2490,7 +2496,7 @@ void SwiftASTContext::InitializeSearchPathOptions(
       info.type = XcodeSDK::GetSDKTypeForTriple(
           HostInfo::GetArchitecture().GetTriple());
       XcodeSDK sdk(info);
-      sdk_path = HostInfo::GetXcodeSDKPath(sdk);
+      sdk_path = std::string(HostInfo::GetXcodeSDKPath(sdk));
     }
     if (!sdk_path.empty()) {
       // Note that calling setSDKPath() also recomputes all paths that

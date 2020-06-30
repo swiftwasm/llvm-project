@@ -1464,6 +1464,8 @@ void SwiftASTContext::AddExtraClangArgs(std::vector<std::string> ExtraArgs) {
         clang_argument == "-working-directory")
       continue;
 
+    auto clear_arg = llvm::make_scope_exit([&] { clang_argument.clear(); });
+
     // Enable uniquing for -D and -U options.
     bool is_macro = (clang_argument.size() >= 2 && clang_argument[0] == '-' &&
                      (clang_argument[1] == 'D' || clang_argument[1] == 'U'));
@@ -1471,15 +1473,18 @@ void SwiftASTContext::AddExtraClangArgs(std::vector<std::string> ExtraArgs) {
 
     // Consume any -working-directory arguments.
     StringRef cwd(clang_argument);
-    if (cwd.consume_front("-working-directory"))
+    if (cwd.consume_front("-working-directory")) {
       cur_working_dir = cwd;
-    else {
-      // Otherwise add the argument to the list.
-      if (!is_macro)
-        ApplyWorkingDir(clang_argument, cur_working_dir);
-      AddClangArgument(clang_argument.str(), unique);
+      continue;
     }
-    clang_argument.clear();
+    // Drop -Werror; it would only cause trouble in the debugger.
+    if (clang_argument.startswith("-Werror")) {
+      continue;
+    }
+    // Otherwise add the argument to the list.
+    if (!is_macro)
+      ApplyWorkingDir(clang_argument, cur_working_dir);
+    AddClangArgument(clang_argument.str(), unique);
   }
 }
 
@@ -1561,13 +1566,21 @@ static llvm::Optional<StringRef> GetDSYMBundle(Module &module) {
   return dsym;
 }
 
+/// Detect whether a Swift module was "imported" by DWARFImporter.
+/// All this *really* means is that it couldn't be loaded through any
+/// other mechanism.
+static bool IsDWARFImported(swift::ModuleDecl &module) {
+  return std::any_of(module.getFiles().begin(), module.getFiles().end(),
+                     [](swift::FileUnit *file_unit) {
+                       return (file_unit->getKind() ==
+                               swift::FileUnitKind::DWARFModule);
+                     });
+}
+
 lldb::TypeSystemSP SwiftASTContext::CreateInstance(lldb::LanguageType language,
                                                    Module &module,
                                                    Target *target,
                                                    bool fallback) {
-  std::vector<std::string> module_search_paths;
-  std::vector<std::pair<std::string, bool>> framework_search_paths;
-
   if (!SwiftASTContextSupportsLanguage(language))
     return lldb::TypeSystemSP();
 
@@ -1581,16 +1594,33 @@ lldb::TypeSystemSP SwiftASTContext::CreateInstance(lldb::LanguageType language,
     module.GetDescription(ss, eDescriptionLevelBrief);
     ss << '"' << ')';
   }
+  std::vector<std::string> module_search_paths;
+  std::vector<std::pair<std::string, bool>> framework_search_paths;
+
+  LOG_PRINTF(LIBLLDB_LOG_TYPES, "(Module)");
+
+  auto logError = [&](const char *message) {
+    LOG_PRINTF(LIBLLDB_LOG_TYPES, "Failed to create module context - %s",
+               message);
+  };
 
   ArchSpec arch = module.GetArchitecture();
+  if (!arch.IsValid()) {
+    logError("invalid module architecture");
+    return TypeSystemSP();
+  }
 
   ObjectFile *objfile = module.GetObjectFile();
-  if (!objfile)
-    return {};
+  if (!objfile) {
+    logError("no object file for module");
+    return TypeSystemSP();
+  }
 
   ArchSpec object_arch = objfile->GetArchitecture();
-  if (!object_arch.IsValid())
-    return {};
+  if (!object_arch.IsValid()) {
+    logError("invalid objfile architecture");
+    return TypeSystemSP();
+  }
 
   lldb::CompUnitSP main_compile_unit_sp = module.GetCompileUnitAtIndex(0);
 
@@ -1646,9 +1676,6 @@ lldb::TypeSystemSP SwiftASTContext::CreateInstance(lldb::LanguageType language,
   swift_ast_sp->GetLanguageOptions().EnableAccessControl = false;
   swift_ast_sp->GetLanguageOptions().EnableTargetOSChecking = false;
 
-  if (!arch.IsValid())
-    return TypeSystemSP();
-
   swift_ast_sp->SetTriple(triple, &module);
 
   bool set_triple = false;
@@ -1659,7 +1686,7 @@ lldb::TypeSystemSP SwiftASTContext::CreateInstance(lldb::LanguageType language,
   std::string target_triple;
 
   if (sym_file) {
-    bool got_serialized_options;
+    bool got_serialized_options = false;
     llvm::SmallString<0> error;
     llvm::raw_svector_ostream errs(error);
     if (DeserializeAllCompilerFlags(*swift_ast_sp, module, m_description, errs,
@@ -1789,6 +1816,20 @@ lldb::TypeSystemSP SwiftASTContext::CreateInstance(lldb::LanguageType language,
       swift_ast_sp->LogConfiguration();
     }
   }
+
+  if (swift_ast_sp->HasFatalErrors()) {
+    logError(swift_ast_sp->GetFatalErrors().AsCString());
+    return {};
+  }
+
+  const bool can_create = true;
+  swift::ModuleDecl *stdlib =
+      swift_ast_sp->m_ast_context_ap->getStdlibModule(can_create);
+  if (!stdlib || IsDWARFImported(*stdlib)) {
+    logError("couldn't load the Swift stdlib");
+    return {};
+  }
+
   return swift_ast_sp;
 }
 
@@ -1843,17 +1884,6 @@ static lldb::ModuleSP GetUnitTestModule(lldb_private::ModuleList &modules) {
   }
 
   return ModuleSP();
-}
-
-/// Detect whether a Swift module was "imported" by DWARFImporter.
-/// All this *really* means is that it couldn't be loaded through any
-/// other mechanism.
-static bool IsDWARFImported(swift::ModuleDecl &module) {
-  return std::any_of(module.getFiles().begin(), module.getFiles().end(),
-                     [](swift::FileUnit *file_unit) {
-                       return (file_unit->getKind() ==
-                               swift::FileUnitKind::DWARFModule);
-                     });
 }
 
 lldb::TypeSystemSP SwiftASTContext::CreateInstance(lldb::LanguageType language,

@@ -10,6 +10,8 @@
 #ifndef _LIBCPP_CSETJMP
 #define _LIBCPP_CSETJMP
 
+#if !defined(__wasi__)
+
 /*
     csetjmp synopsis
 
@@ -43,5 +45,7 @@ using ::jmp_buf;
 using ::longjmp;
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // !defined(__wasi__)
 
 #endif  // _LIBCPP_CSETJMP

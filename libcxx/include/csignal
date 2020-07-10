@@ -10,6 +10,8 @@
 #ifndef _LIBCPP_CSIGNAL
 #define _LIBCPP_CSIGNAL
 
+#if !defined(__wasi__)
+
 /*
     csignal synopsis
 
@@ -53,5 +55,7 @@ using ::signal;
 using ::raise;
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // !defined(__wasi__)
 
 #endif  // _LIBCPP_CSIGNAL

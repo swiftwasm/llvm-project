@@ -1254,12 +1254,6 @@ bool TypeSystemSwiftTypeRef::IsDefined(opaque_compiler_type_t type) {
   auto impl = [&]() -> bool { return type; };
   VALIDATE_AND_RETURN(impl, IsDefined, type, (ReconstructType(type)));
 }
-bool TypeSystemSwiftTypeRef::IsFloatingPointType(opaque_compiler_type_t type,
-                                                 uint32_t &count,
-                                                 bool &is_complex) {
-  return m_swift_ast_context->IsFloatingPointType(ReconstructType(type), count,
-                                                  is_complex);
-}
 
 bool TypeSystemSwiftTypeRef::IsFunctionType(opaque_compiler_type_t type,
                                             bool *is_variadic_ptr) {
@@ -1349,10 +1343,6 @@ bool TypeSystemSwiftTypeRef::IsFunctionPointerType(
   VALIDATE_AND_RETURN(impl, IsFunctionPointerType, type,
                       (ReconstructType(type)));
 }
-bool TypeSystemSwiftTypeRef::IsIntegerType(opaque_compiler_type_t type,
-                                           bool &is_signed) {
-  return m_swift_ast_context->IsIntegerType(ReconstructType(type), is_signed);
-}
 bool TypeSystemSwiftTypeRef::IsPossibleDynamicType(opaque_compiler_type_t type,
                                                    CompilerType *target_type,
                                                    bool check_cplusplus,
@@ -1376,9 +1366,6 @@ bool TypeSystemSwiftTypeRef::IsPointerType(opaque_compiler_type_t type,
   };
   VALIDATE_AND_RETURN(impl, IsPointerType, type,
                       (ReconstructType(type), pointee_type));
-}
-bool TypeSystemSwiftTypeRef::IsScalarType(opaque_compiler_type_t type) {
-  return m_swift_ast_context->IsScalarType(ReconstructType(type));
 }
 bool TypeSystemSwiftTypeRef::IsVoidType(opaque_compiler_type_t type) {
   auto impl = [&]() {

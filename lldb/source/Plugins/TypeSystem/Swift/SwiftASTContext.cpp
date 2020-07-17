@@ -5093,11 +5093,6 @@ bool SwiftASTContext::IsFunctionPointerType(opaque_compiler_type_t type) {
   return IsFunctionType(type, nullptr); // FIXME: think about this
 }
 
-bool SwiftASTContext::IsIntegerType(opaque_compiler_type_t type,
-                                    bool &is_signed) {
-  return (GetTypeInfo(type, nullptr) & eTypeIsInteger);
-}
-
 bool SwiftASTContext::IsPointerType(opaque_compiler_type_t type,
                                     CompilerType *pointee_type) {
   VALID_OR_RETURN(false);
@@ -5148,20 +5143,6 @@ bool SwiftASTContext::IsReferenceType(opaque_compiler_type_t type,
   return false;
 }
 
-bool SwiftASTContext::IsFloatingPointType(opaque_compiler_type_t type,
-                                          uint32_t &count, bool &is_complex) {
-  if (type) {
-    if (GetTypeInfo(type, nullptr) & eTypeIsFloat) {
-      count = 1;
-      is_complex = false;
-      return true;
-    }
-  }
-  count = 0;
-  is_complex = false;
-  return false;
-}
-
 bool SwiftASTContext::IsDefined(opaque_compiler_type_t type) {
   if (!type)
     return false;
@@ -5204,13 +5185,6 @@ bool SwiftASTContext::IsPossibleDynamicType(opaque_compiler_type_t type,
   if (dynamic_pointee_type)
     dynamic_pointee_type->Clear();
   return false;
-}
-
-bool SwiftASTContext::IsScalarType(opaque_compiler_type_t type) {
-  if (!type)
-    return false;
-
-  return (GetTypeInfo(type, nullptr) & eTypeIsScalar) != 0;
 }
 
 bool SwiftASTContext::IsTypedefType(opaque_compiler_type_t type) {

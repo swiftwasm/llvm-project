@@ -1122,6 +1122,16 @@ template <> bool Equivalent<ConstString>(ConstString l, ConstString r) {
 
 // This can be removed once the transition is complete.
 #ifndef NDEBUG
+#define VALIDATE_AND_RETURN_STATIC(IMPL, REFERENCE)                     \
+  do {                                                                         \
+    auto result = IMPL();                                                      \
+    if (!m_swift_ast_context)                                                  \
+      return result;                                                           \
+    assert((result == m_swift_ast_context->REFERENCE()) &&                     \
+           "TypeSystemSwiftTypeRef diverges from SwiftASTContext");            \
+    return result;                                                             \
+  } while (0)
+
 #define VALIDATE_AND_RETURN(IMPL, REFERENCE, TYPE, ARGS)                       \
   do {                                                                         \
     auto result = IMPL();                                                      \
@@ -1137,11 +1147,8 @@ template <> bool Equivalent<ConstString>(ConstString l, ConstString r) {
     return result;                                                             \
   } while (0)
 #else
-#define VALIDATE_AND_RETURN(IMPL, REFERENCE, TYPE, ARGS)                       \
-  do {                                                                         \
-    auto result = IMPL();                                                      \
-    return result;                                                             \
-  } while (0)
+#define VALIDATE_AND_RETURN_STATIC(IMPL, REFERENCE) return IMPL()
+#define VALIDATE_AND_RETURN(IMPL, REFERENCE, TYPE, ARGS) return IMPL()
 #endif
 
 CompilerType
@@ -1385,13 +1392,23 @@ bool TypeSystemSwiftTypeRef::IsVoidType(opaque_compiler_type_t type) {
   };
   VALIDATE_AND_RETURN(impl, IsVoidType, type, (ReconstructType(type)));
 }
-// Type Completion
-bool TypeSystemSwiftTypeRef::GetCompleteType(opaque_compiler_type_t type) {
-  return m_swift_ast_context->GetCompleteType(ReconstructType(type));
-}
 // AST related queries
 uint32_t TypeSystemSwiftTypeRef::GetPointerByteSize() {
-  return m_swift_ast_context->GetPointerByteSize();
+  auto impl = [&]() -> uint32_t {
+    if (auto *module = GetModule()) {
+      auto &triple = module->GetArchitecture().GetTriple();
+      if (triple.isArch64Bit())
+        return 8;
+      if (triple.isArch32Bit())
+        return 4;
+      if (triple.isArch16Bit())
+        return 2;
+    }
+    // An expression context has no module. Since it's for expression
+    // evaluation we might as well defer to the SwiftASTContext.
+    return m_swift_ast_context->GetPointerByteSize();
+  };
+  VALIDATE_AND_RETURN_STATIC(impl, GetPointerByteSize);
 }
 // Accessors
 ConstString TypeSystemSwiftTypeRef::GetTypeName(opaque_compiler_type_t type) {
@@ -1771,9 +1788,4 @@ bool TypeSystemSwiftTypeRef::IsReferenceType(opaque_compiler_type_t type,
 
   VALIDATE_AND_RETURN(impl, IsReferenceType, type,
                       (ReconstructType(type), pointee_type, is_rvalue));
-}
-bool TypeSystemSwiftTypeRef::ShouldTreatScalarValueAsAddress(
-    opaque_compiler_type_t type) {
-  return m_swift_ast_context->ShouldTreatScalarValueAsAddress(
-      ReconstructType(type));
 }

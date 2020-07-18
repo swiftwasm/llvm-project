@@ -159,6 +159,9 @@ public:
   bool IsBeingDefined(lldb::opaque_compiler_type_t type) override {
     return false;
   }
+  bool GetCompleteType(lldb::opaque_compiler_type_t type) override {
+    return true;
+  }
   bool CanPassInRegisters(const CompilerType &type) override {
     // FIXME: Implement this. There was an abort() here to figure out which
     // tests where hitting this code. At least TestSwiftReturns and
@@ -193,6 +196,8 @@ public:
                              size_t idx, uint32_t *bit_offset_ptr) override {
     return {};
   }
+  bool
+  ShouldTreatScalarValueAsAddress(lldb::opaque_compiler_type_t type) override;
   /// \}
 protected:
   /// Used in the logs.

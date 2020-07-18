@@ -515,10 +515,6 @@ public:
       const CompilerType &type, NonTriviallyManagedReferenceStrategy &strategy,
       CompilerType *underlying_type = nullptr);
 
-  // Type Completion
-
-  bool GetCompleteType(lldb::opaque_compiler_type_t type) override;
-
   // AST related queries
 
   uint32_t GetPointerByteSize() override;
@@ -725,9 +721,6 @@ public:
 
   bool IsReferenceType(lldb::opaque_compiler_type_t type,
                        CompilerType *pointee_type, bool *is_rvalue) override;
-
-  bool
-  ShouldTreatScalarValueAsAddress(lldb::opaque_compiler_type_t type) override;
 
   uint32_t GetNumPointeeChildren(lldb::opaque_compiler_type_t type);
 

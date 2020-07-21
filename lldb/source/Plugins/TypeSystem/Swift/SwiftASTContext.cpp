@@ -218,7 +218,7 @@ swift::Type SwiftASTContext::GetSwiftType(opaque_compiler_type_t opaque_type) {
 
 swift::CanType
 SwiftASTContext::GetCanonicalSwiftType(opaque_compiler_type_t opaque_type) {
-  assert(opaque_type && *reinterpret_cast<const char *>(opaque_type) != '$' &&
+  assert(!opaque_type || *reinterpret_cast<const char *>(opaque_type) != '$' &&
          "wrong type system");
   return lldb_private::GetCanonicalSwiftType(CompilerType(this, opaque_type));
 }
@@ -1448,43 +1448,24 @@ void ApplyWorkingDir(SmallString &clang_argument, StringRef cur_working_dir) {
   llvm::sys::path::append(clang_argument, cur_working_dir, rel_path);
   llvm::sys::path::remove_dots(clang_argument);
 }
-
-std::array<StringRef, 2> macro_flags = { "-D", "-U" };
-
-bool IsMultiArgClangFlag(StringRef arg) {
-  for (auto &flag : macro_flags)
-    if (flag == arg)
-      return true;
-  return arg == "-working-directory";
-}
-
-bool IsMacroDefinition(StringRef arg) {
-  for (auto &flag : macro_flags)
-    if (arg.startswith(flag))
-      return true;
-  return false;
-}
-
-bool ShouldUnique(StringRef arg) {
-  return IsMacroDefinition(arg);
-}
 } // namespace
 
 void SwiftASTContext::AddExtraClangArgs(std::vector<std::string> ExtraArgs) {
-  swift::ClangImporterOptions &importer_options = GetClangImporterOptions();
-  llvm::DenseSet<StringRef> unique_flags;
-  for (auto &arg : importer_options.ExtraArgs)
-    unique_flags.insert(arg);
-
   llvm::SmallString<128> cur_working_dir;
   llvm::SmallString<128> clang_argument;
   for (const std::string &arg : ExtraArgs) {
-    // Join multi-arg options for uniquing.
+    // Join multi-arg -D and -U options for uniquing.
     clang_argument += arg;
-    if (IsMultiArgClangFlag(clang_argument))
+    if (clang_argument == "-D" || clang_argument == "-U" ||
+        clang_argument == "-working-directory")
       continue;
 
     auto clear_arg = llvm::make_scope_exit([&] { clang_argument.clear(); });
+
+    // Enable uniquing for -D and -U options.
+    bool is_macro = (clang_argument.size() >= 2 && clang_argument[0] == '-' &&
+                     (clang_argument[1] == 'D' || clang_argument[1] == 'U'));
+    bool unique = is_macro;
 
     // Consume any -working-directory arguments.
     StringRef cwd(clang_argument);
@@ -1493,21 +1474,13 @@ void SwiftASTContext::AddExtraClangArgs(std::vector<std::string> ExtraArgs) {
       continue;
     }
     // Drop -Werror; it would only cause trouble in the debugger.
-    if (clang_argument.startswith("-Werror"))
+    if (clang_argument.startswith("-Werror")) {
       continue;
-
-    if (clang_argument.empty())
-      continue;
-
-    // Otherwise add the argument to the list.
-    if (!IsMacroDefinition(clang_argument))
-      ApplyWorkingDir(clang_argument, cur_working_dir);
-
-    auto clang_arg_str = clang_argument.str();
-    if (!ShouldUnique(clang_argument) || !unique_flags.count(clang_arg_str)) {
-      importer_options.ExtraArgs.push_back(clang_arg_str);
-      unique_flags.insert(clang_arg_str);
     }
+    // Otherwise add the argument to the list.
+    if (!is_macro)
+      ApplyWorkingDir(clang_argument, cur_working_dir);
+    AddClangArgument(clang_argument.str(), unique);
   }
 }
 
@@ -3412,6 +3385,41 @@ swift::DWARFImporterDelegate *SwiftASTContext::GetDWARFImporterDelegate() {
   VALID_OR_RETURN(nullptr);
 
   return m_dwarf_importer_delegate_up.get();
+}
+
+bool SwiftASTContext::AddClangArgument(std::string clang_arg, bool unique) {
+  if (clang_arg.empty())
+    return false;
+
+  swift::ClangImporterOptions &importer_options = GetClangImporterOptions();
+  // Avoid inserting the same option twice.
+  if (unique)
+    for (std::string &arg : importer_options.ExtraArgs)
+      if (arg == clang_arg)
+        return false;
+
+  importer_options.ExtraArgs.push_back(clang_arg);
+  return true;
+}
+
+bool SwiftASTContext::AddClangArgumentPair(StringRef clang_arg_1,
+                                           StringRef clang_arg_2) {
+  if (clang_arg_1.empty() || clang_arg_2.empty())
+    return false;
+
+  swift::ClangImporterOptions &importer_options = GetClangImporterOptions();
+  bool add_hmap = true;
+  for (ssize_t ai = 0, ae = importer_options.ExtraArgs.size() -
+                            1; // -1 because we look at the next one too
+       ai < ae; ++ai) {
+    if (clang_arg_1.equals(importer_options.ExtraArgs[ai]) &&
+        clang_arg_2.equals(importer_options.ExtraArgs[ai + 1]))
+      return false;
+  }
+
+  importer_options.ExtraArgs.push_back(clang_arg_1);
+  importer_options.ExtraArgs.push_back(clang_arg_2);
+  return true;
 }
 
 const swift::SearchPathOptions *SwiftASTContext::GetSearchPathOptions() const {
@@ -5537,14 +5545,6 @@ SwiftASTContext::GetTypeInfo(opaque_compiler_type_t type,
   return swift_flags;
 }
 
-lldb::LanguageType
-SwiftASTContext::GetMinimumLanguage(opaque_compiler_type_t type) {
-  if (!type)
-    return lldb::eLanguageTypeC;
-
-  return lldb::eLanguageTypeSwift;
-}
-
 lldb::TypeClass SwiftASTContext::GetTypeClass(opaque_compiler_type_t type) {
   VALID_OR_RETURN(lldb::eTypeClassInvalid);
 
@@ -5554,18 +5554,11 @@ lldb::TypeClass SwiftASTContext::GetTypeClass(opaque_compiler_type_t type) {
   swift::CanType swift_can_type(GetCanonicalSwiftType(type));
   const swift::TypeKind type_kind = swift_can_type->getKind();
   switch (type_kind) {
-  case swift::TypeKind::Error:
-    return lldb::eTypeClassOther;
   case swift::TypeKind::BuiltinInteger:
-    return lldb::eTypeClassBuiltin;
   case swift::TypeKind::BuiltinFloat:
-    return lldb::eTypeClassBuiltin;
   case swift::TypeKind::BuiltinRawPointer:
-    return lldb::eTypeClassBuiltin;
   case swift::TypeKind::BuiltinNativeObject:
-    return lldb::eTypeClassBuiltin;
   case swift::TypeKind::BuiltinUnsafeValueBuffer:
-    return lldb::eTypeClassBuiltin;
   case swift::TypeKind::BuiltinBridgeObject:
     return lldb::eTypeClassBuiltin;
   case swift::TypeKind::BuiltinVector:
@@ -5577,56 +5570,39 @@ lldb::TypeClass SwiftASTContext::GetTypeClass(opaque_compiler_type_t type) {
   case swift::TypeKind::WeakStorage:
     return ToCompilerType(swift_can_type->getReferenceStorageReferent())
         .GetTypeClass();
-  case swift::TypeKind::GenericTypeParam:
-    return lldb::eTypeClassOther;
-  case swift::TypeKind::DependentMember:
-    return lldb::eTypeClassOther;
   case swift::TypeKind::Enum:
+  case swift::TypeKind::BoundGenericEnum:
     return lldb::eTypeClassUnion;
   case swift::TypeKind::Struct:
+  case swift::TypeKind::BoundGenericStruct:
     return lldb::eTypeClassStruct;
   case swift::TypeKind::Class:
+  case swift::TypeKind::BoundGenericClass:
     return lldb::eTypeClassClass;
+  case swift::TypeKind::GenericTypeParam:
+  case swift::TypeKind::DependentMember:
   case swift::TypeKind::Protocol:
-    return lldb::eTypeClassOther;
+  case swift::TypeKind::ProtocolComposition:
   case swift::TypeKind::Metatype:
-    return lldb::eTypeClassOther;
   case swift::TypeKind::Module:
-    return lldb::eTypeClassOther;
   case swift::TypeKind::PrimaryArchetype:
   case swift::TypeKind::OpenedArchetype:
   case swift::TypeKind::NestedArchetype:
+  case swift::TypeKind::UnboundGeneric:
+  case swift::TypeKind::TypeVariable:
+  case swift::TypeKind::ExistentialMetatype:
+  case swift::TypeKind::SILBox:
+  case swift::TypeKind::DynamicSelf:
+  case swift::TypeKind::SILBlockStorage:
+  case swift::TypeKind::Unresolved:
+  case swift::TypeKind::Error:
     return lldb::eTypeClassOther;
   case swift::TypeKind::Function:
-    return lldb::eTypeClassFunction;
   case swift::TypeKind::GenericFunction:
-    return lldb::eTypeClassFunction;
-  case swift::TypeKind::ProtocolComposition:
-    return lldb::eTypeClassOther;
-  case swift::TypeKind::LValue:
-    return lldb::eTypeClassReference;
-  case swift::TypeKind::UnboundGeneric:
-    return lldb::eTypeClassOther;
-  case swift::TypeKind::BoundGenericClass:
-    return lldb::eTypeClassClass;
-  case swift::TypeKind::BoundGenericEnum:
-    return lldb::eTypeClassUnion;
-  case swift::TypeKind::BoundGenericStruct:
-    return lldb::eTypeClassStruct;
-  case swift::TypeKind::TypeVariable:
-    return lldb::eTypeClassOther;
-  case swift::TypeKind::ExistentialMetatype:
-    return lldb::eTypeClassOther;
-  case swift::TypeKind::DynamicSelf:
-    return lldb::eTypeClassOther;
-  case swift::TypeKind::SILBox:
-    return lldb::eTypeClassOther;
   case swift::TypeKind::SILFunction:
     return lldb::eTypeClassFunction;
-  case swift::TypeKind::SILBlockStorage:
-    return lldb::eTypeClassOther;
-  case swift::TypeKind::Unresolved:
-    return lldb::eTypeClassOther;
+  case swift::TypeKind::LValue:
+    return lldb::eTypeClassReference;
 
   case swift::TypeKind::Optional:
   case swift::TypeKind::TypeAlias:

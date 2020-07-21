@@ -168,6 +168,12 @@ public:
     // TestSwiftStepping were failing because of this Darwin.
     return false;
   }
+  lldb::LanguageType
+  GetMinimumLanguage(lldb::opaque_compiler_type_t type) override {
+    assert(type && "CompilerType::GetMinimumLanguage() is not supposed to "
+                   "forward calls with NULL types ");
+    return lldb::eLanguageTypeSwift;
+  }
   unsigned GetTypeQualifiers(lldb::opaque_compiler_type_t type) override {
     return 0;
   }

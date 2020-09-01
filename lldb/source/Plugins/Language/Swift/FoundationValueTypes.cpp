@@ -30,14 +30,23 @@ using namespace lldb_private;
 using namespace lldb_private::formatters;
 using namespace lldb_private::formatters::swift;
 
+static constexpr bool show_unavailable_workaround = true;
+static const char *unavailable_field_workaround =
+  "<unavailable; try printing with \"vo\" or \"po\">";
+
 bool lldb_private::formatters::swift::Date_SummaryProvider(
     ValueObject &valobj, Stream &stream, const TypeSummaryOptions &options) {
   static ConstString g__time("_time");
 
   ValueObjectSP time_sp(valobj.GetChildAtNamePath({g__time}));
 
-  if (!time_sp)
+  if (!time_sp) {
+    if (show_unavailable_workaround) {
+      stream.Printf(unavailable_field_workaround);
+      return true;
+    }
     return false;
+  }
 
   DataExtractor data_extractor;
   Status error;
@@ -74,8 +83,13 @@ bool lldb_private::formatters::swift::NotificationName_SummaryProvider(
 
   ValueObjectSP underlying_name_sp(valobj.GetChildAtNamePath({g__rawValue}));
 
-  if (!underlying_name_sp)
+  if (!underlying_name_sp) {
+    if (show_unavailable_workaround) {
+      stream.Printf(unavailable_field_workaround);
+      return true;
+    }
     return false;
+  }
 
   std::string summary;
   if (!underlying_name_sp->GetSummaryAsCString(summary, options))
@@ -91,8 +105,13 @@ bool lldb_private::formatters::swift::URL_SummaryProvider(
 
   ValueObjectSP underlying_url_sp(valobj.GetChildAtNamePath({g__url}));
 
-  if (!underlying_url_sp)
+  if (!underlying_url_sp) {
+    if (show_unavailable_workaround) {
+      stream.Printf(unavailable_field_workaround);
+      return true;
+    }
     return false;
+  }
 
   std::string summary;
   if (!underlying_url_sp->GetSummaryAsCString(summary, options))
@@ -112,8 +131,13 @@ bool lldb_private::formatters::swift::IndexPath_SummaryProvider(
   
   ValueObjectSP underlying_enum_sp(valobj.GetChildAtNamePath({g__indexes}));
 
-  if (!underlying_enum_sp)
+  if (!underlying_enum_sp) {
+    if (show_unavailable_workaround) {
+      stream.Printf(unavailable_field_workaround);
+      return true;
+    }
     return false;
+  }
 
   underlying_enum_sp =
       underlying_enum_sp->GetQualifiedRepresentationIfAvailable(
@@ -148,12 +172,22 @@ bool lldb_private::formatters::swift::Measurement_SummaryProvider(
   static ConstString g__symbol("_symbol");
 
   ValueObjectSP value_sp(valobj.GetChildAtNamePath({g_value}));
-  if (!value_sp)
+  if (!value_sp) {
+    if (show_unavailable_workaround) {
+      stream.Printf(unavailable_field_workaround);
+      return true;
+    }
     return false;
+  }
 
   ValueObjectSP unit_sp(valobj.GetChildAtNamePath({g_unit}));
-  if (!unit_sp)
+  if (!unit_sp) {
+    if (show_unavailable_workaround) {
+      stream.Printf(unavailable_field_workaround);
+      return true;
+    }
     return false;
+  }
 
   ProcessSP process_sp(valobj.GetProcessSP());
   if (!process_sp)
@@ -209,8 +243,13 @@ bool lldb_private::formatters::swift::UUID_SummaryProvider(
   static ConstString g_uuid("uuid");
 
   ValueObjectSP uuid_sp(valobj.GetChildAtNamePath({g_uuid}));
-  if (!uuid_sp)
+  if (!uuid_sp) {
+    if (show_unavailable_workaround) {
+      stream.Printf(unavailable_field_workaround);
+      return true;
+    }
     return false;
+  }
 
   if (uuid_sp->GetNumChildren() < 16)
     return false;
@@ -266,8 +305,13 @@ bool lldb_private::formatters::swift::Data_SummaryProvider(
   static ConstString g__representation("_representation");
   ValueObjectSP representation_enum_sp =
       valobj.GetChildAtNamePath(g__representation);
-  if (!representation_enum_sp)
+  if (!representation_enum_sp) {
+    if (show_unavailable_workaround) {
+      stream.Printf(unavailable_field_workaround);
+      return true;
+    }
     return false;
+  }
 
   representation_enum_sp =
       representation_enum_sp->GetQualifiedRepresentationIfAvailable(
@@ -504,8 +548,13 @@ bool lldb_private::formatters::swift::Decimal_SummaryProvider(
 
   static ConstString g_mantissa("_mantissa");
   ValueObjectSP mantissa_sp = valobj.GetChildAtNamePath(g_mantissa);
-  if (!mantissa_sp)
+  if (!mantissa_sp) {
+    if (show_unavailable_workaround) {
+      stream.Printf(unavailable_field_workaround);
+      return true;
+    }
     return false;
+  }
 
   // Easy case. length == 0 is either `NaN` or `0`.
   if (length == 0) {

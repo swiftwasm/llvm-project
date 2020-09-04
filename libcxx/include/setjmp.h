@@ -10,6 +10,8 @@
 #ifndef _LIBCPP_SETJMP_H
 #define _LIBCPP_SETJMP_H
 
+#if !defined(__wasi__)
+
 /*
     setjmp.h synopsis
 
@@ -40,5 +42,7 @@ void longjmp(jmp_buf env, int val);
 #endif
 
 #endif // __cplusplus
+
+#endif // !defined(__wasi__)
 
 #endif  // _LIBCPP_SETJMP_H

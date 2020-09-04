@@ -36,6 +36,7 @@ class MCOperand {
     kInvalid,     ///< Uninitialized.
     kRegister,    ///< Register operand.
     kImmediate,   ///< Immediate operand.
+    kSFPImmediate, ///< Single-floating-point immediate operand.
     kFPImmediate, ///< Floating-point immediate operand.
     kExpr,        ///< Relocatable immediate operand.
     kInst         ///< Sub-instruction operand.
@@ -45,6 +46,7 @@ class MCOperand {
   union {
     unsigned RegVal;
     int64_t ImmVal;
+    float SFPImmVal;
     double FPImmVal;
     const MCExpr *ExprVal;
     const MCInst *InstVal;
@@ -56,6 +58,7 @@ public:
   bool isValid() const { return Kind != kInvalid; }
   bool isReg() const { return Kind == kRegister; }
   bool isImm() const { return Kind == kImmediate; }
+  bool isSFPImm() const { return Kind == kSFPImmediate; }
   bool isFPImm() const { return Kind == kFPImmediate; }
   bool isExpr() const { return Kind == kExpr; }
   bool isInst() const { return Kind == kInst; }
@@ -80,6 +83,16 @@ public:
   void setImm(int64_t Val) {
     assert(isImm() && "This is not an immediate");
     ImmVal = Val;
+  }
+
+  float getSFPImm() const {
+    assert(isSFPImm() && "This is not an SFP immediate");
+    return SFPImmVal;
+  }
+
+  void setSFPImm(float Val) {
+    assert(isSFPImm() && "This is not an SFP immediate");
+    SFPImmVal = Val;
   }
 
   double getFPImm() const {
@@ -123,6 +136,13 @@ public:
     MCOperand Op;
     Op.Kind = kImmediate;
     Op.ImmVal = Val;
+    return Op;
+  }
+
+  static MCOperand createSFPImm(float Val) {
+    MCOperand Op;
+    Op.Kind = kSFPImmediate;
+    Op.SFPImmVal = Val;
     return Op;
   }
 

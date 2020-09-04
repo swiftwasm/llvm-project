@@ -391,7 +391,15 @@ void WasmObjectWriter::startCustomSection(SectionBookkeeping &Section,
   Section.PayloadOffset = W.OS.tell();
 
   // Custom sections in wasm also have a string identifier.
-  writeString(Name);
+  if (Name != "__clangast") {
+    writeString(Name);
+  } else {
+    // pad section start to nearest 4 bytes for Clang PCH
+    uint64_t MinLength = Section.PayloadOffset + 5ULL /* min ULEB128 length */ + Name.size();
+    uint64_t RoundedUpLength = (MinLength + 3ULL) & ~3ULL;
+    encodeULEB128(Name.size(), W.OS, 5 + (RoundedUpLength - MinLength));
+    W.OS << Name;
+  }
 
   // The position where the custom section starts.
   Section.ContentsOffset = W.OS.tell();
@@ -489,6 +497,7 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
   FixedValue = 0;
 
   unsigned Type = TargetObjectWriter->getRelocType(Target, Fixup);
+  assert(SymA);
 
   // Absolute offset within a section or a function.
   // Currently only supported for for metadata sections.
@@ -1091,8 +1100,16 @@ void WasmObjectWriter::writeCustomSection(WasmCustomSection &CustomSection,
   auto *Sec = CustomSection.Section;
   startCustomSection(Section, CustomSection.Name);
 
-  Sec->setSectionOffset(W.OS.tell() - Section.ContentsOffset);
-  Asm.writeSectionData(W.OS, Sec, Layout);
+    if (CustomSection.Name == "__clangast") {
+      // pad to nearest 4 bytes
+      uint64_t RoundedUp = (Section.ContentsOffset + 3ULL) & ~3ULL;
+      for (uint64_t Count = 0; Count < RoundedUp - Section.ContentsOffset; Count++) {
+        W.OS << char(0);
+      }
+    }
+
+    Sec->setSectionOffset(W.OS.tell() - Section.ContentsOffset);
+    Asm.writeSectionData(W.OS, Sec, Layout);
 
   CustomSection.OutputContentsOffset = Section.ContentsOffset;
   CustomSection.OutputIndex = Section.Index;
@@ -1170,7 +1187,27 @@ static bool isInSymtab(const MCSymbolWasm &Sym) {
   if (Sym.isSection())
     return false;
 
+  // Clang's precompiled headers are in a separate custom section
+  if (Sym.getName() == "__clang_ast")
+    return false;
+
   return true;
+}
+
+// SwiftWasm: takes a MCSymbolWasm that's an alias expression of the form
+// ((targetSymbol + constantA) - constantB) + constantC...)
+// return the final offset from targetSymbol.
+// if no offset, returns 0.
+static int64_t getAliasedSymbolOffset(const MCSymbolWasm &Symbol,
+                                      const MCAsmLayout &Layout) {
+  if (!Symbol.isVariable())
+    return 0;
+  const MCExpr *Expr = Symbol.getVariableValue();
+  MCValue Res;
+  if (!Expr->evaluateAsRelocatable(Res, &Layout, nullptr)) {
+    report_fatal_error("Can't evaluate alias symbol expression");
+  }
+  return Res.getConstant();
 }
 
 uint64_t WasmObjectWriter::writeObject(MCAssembler &Asm,
@@ -1416,6 +1453,10 @@ uint64_t WasmObjectWriter::writeObject(MCAssembler &Asm,
       LLVM_DEBUG(dbgs() << "  -> function index: " << Index << "\n");
 
     } else if (WS.isData()) {
+      if (WS.getName() == "__clang_ast")
+        continue;
+      if (WS.isTemporary() && !WS.getSize())
+        continue;
       if (!isInSymtab(WS))
         continue;
 

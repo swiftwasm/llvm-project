@@ -55,6 +55,26 @@ WebAssemblyMCInstLower::GetGlobalAddressSymbol(const MachineOperand &MO) const {
     const auto *const F = dyn_cast<Function>(Global);
     computeSignatureVTs(FuncTy, F, CurrentFunc, TM, ParamMVTs, ResultMVTs);
 
+    // For swiftcc, emit additional swiftself and swifterror parameters
+    // if there aren't any. These additional parameters are also passed for caller.
+    // They are necessary to match callee and caller signature for indirect
+    // call.
+    const auto *const F = dyn_cast<Function>(Global);
+    if (F && F->getCallingConv() == CallingConv::Swift) {
+      MVT PtrVT =
+          MVT::getIntegerVT(TM.createDataLayout().getPointerSizeInBits());
+      bool HasSwiftErrorArg = false;
+      bool HasSwiftSelfArg = false;
+      for (const auto &Arg : F->args()) {
+        HasSwiftErrorArg |= Arg.hasAttribute(Attribute::SwiftError);
+        HasSwiftSelfArg |= Arg.hasAttribute(Attribute::SwiftSelf);
+      }
+      if (!HasSwiftErrorArg)
+        ParamMVTs.push_back(PtrVT);
+      if (!HasSwiftSelfArg)
+        ParamMVTs.push_back(PtrVT);
+    }
+
     auto Signature = signatureFromMVTs(ResultMVTs, ParamMVTs);
     WasmSym->setSignature(Signature.get());
     Printer.addSignature(std::move(Signature));
@@ -272,11 +292,9 @@ void WebAssemblyMCInstLower::lower(const MachineInstr *MI,
       break;
     }
     case MachineOperand::MO_FPImmediate: {
-      // TODO: MC converts all floating point immediate operands to double.
-      // This is fine for numeric values, but may cause NaNs to change bits.
       const ConstantFP *Imm = MO.getFPImm();
       if (Imm->getType()->isFloatTy())
-        MCOp = MCOperand::createFPImm(Imm->getValueAPF().convertToFloat());
+        MCOp = MCOperand::createSFPImm(Imm->getValueAPF().convertToFloat());
       else if (Imm->getType()->isDoubleTy())
         MCOp = MCOperand::createFPImm(Imm->getValueAPF().convertToDouble());
       else

@@ -59,7 +59,6 @@ WebAssemblyMCInstLower::GetGlobalAddressSymbol(const MachineOperand &MO) const {
     // if there aren't any. These additional parameters are also passed for caller.
     // They are necessary to match callee and caller signature for indirect
     // call.
-    const auto *const F = dyn_cast<Function>(Global);
     if (F && F->getCallingConv() == CallingConv::Swift) {
       MVT PtrVT =
           MVT::getIntegerVT(TM.createDataLayout().getPointerSizeInBits());

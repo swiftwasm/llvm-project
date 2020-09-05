@@ -1050,12 +1050,6 @@ SDValue WebAssemblyTargetLowering::LowerFormalArguments(
   SmallVector<MVT, 4> Results;
   computeSignatureVTs(MF.getFunction().getFunctionType(), &MF.getFunction(),
                       MF.getFunction(), DAG.getTarget(), Params, Results);
-  if (CallConv == CallingConv::Swift) {
-    if (!HasSwiftErrorArg)
-      Params.push_back(PtrVT);
-    if (!HasSwiftSelfArg)
-      Params.push_back(PtrVT);
-  }
   for (MVT VT : Results)
     MFI->addResult(VT);
   // TODO: Use signatures in WebAssemblyMachineFunctionInfo too and unify

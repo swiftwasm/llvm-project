@@ -1856,6 +1856,9 @@ MCSection *TargetLoweringObjectFileWasm::getExplicitSectionGlobal(
   if (Name == ".llvmcmd" || Name == ".llvmbc")
     Kind = SectionKind::getMetadata();
 
+  if (Name == "__clangast")
+    Kind = SectionKind::getMetadata();
+
   StringRef Group = "";
   if (const Comdat *C = getWasmComdat(GO)) {
     Group = C->getName();

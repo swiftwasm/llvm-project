@@ -780,11 +780,17 @@ static uint32_t collectTypeInfo(Module *M, swift::Demangle::Demangler &dem,
           swift_flags |= eTypeIsPointer | eTypeIsScalar;
         else if (node->getText() == swift::BUILTIN_TYPE_NAME_NATIVEOBJECT)
           swift_flags |= eTypeHasChildren | eTypeIsPointer | eTypeIsScalar;
-        else if (node->getText() == swift::BUILTIN_TYPE_NAME_BRIDGEOBJECT)
+        else if (node->getText() == swift::BUILTIN_TYPE_NAME_BRIDGEOBJECT ||
+                 node->getText() == swift::BUILTIN_TYPE_NAME_UNKNOWNOBJECT)
           swift_flags |=
               eTypeHasChildren | eTypeIsPointer | eTypeIsScalar | eTypeIsObjC;
+        else if (node->getText() == swift::BUILTIN_TYPE_NAME_FLOAT ||
+                 node->getText() == swift::BUILTIN_TYPE_NAME_FLOAT_PPC)
+          swift_flags |= eTypeIsFloat | eTypeIsScalar;
         else if (node->getText().startswith(swift::BUILTIN_TYPE_NAME_VEC))
           swift_flags |= eTypeHasChildren | eTypeIsVector;
+        else if (node->getText().startswith(swift::BUILTIN_TYPE_NAME_INT))
+          swift_flags |= eTypeIsInteger | eTypeIsScalar;
       }
       break;
     case Node::Kind::Tuple:
@@ -1197,6 +1203,9 @@ bool Equivalent<llvm::Optional<uint64_t>>(llvm::Optional<uint64_t> l,
   // all Clang-imported members of structs as having a size of 0, we
   // thus assume that a larger number is "better".
   if (l.hasValue() && r.hasValue() && *l > *r)
+    return true;
+  // Assume that any value is "better" than none.
+  if (l.hasValue() && !r.hasValue())
     return true;
   llvm::dbgs() << l << " != " << r << "\n";
   return false;

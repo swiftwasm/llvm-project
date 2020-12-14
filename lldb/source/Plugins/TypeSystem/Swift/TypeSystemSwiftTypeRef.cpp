@@ -2264,7 +2264,8 @@ CompilerType TypeSystemSwiftTypeRef::GetChildCompilerTypeAtIndex(
   // Because the API deals out an index into a list of children we
   // can't mix&match between the two typesystems if there is such a
   // divergence. We'll need to replace all calls at once.
-  if (m_swift_ast_context->GetNumFields(ReconstructType(type)) <
+  if (m_swift_ast_context->GetNumChildren(ReconstructType(type),
+                                          omit_empty_base_classes, exe_ctx) <
       runtime->GetNumChildren({this, type}, valobj).getValueOr(0))
     return fallback();
 
@@ -2327,12 +2328,29 @@ CompilerType
 TypeSystemSwiftTypeRef::GetTypeForFormatters(opaque_compiler_type_t type) {
   return m_swift_ast_context->GetTypeForFormatters(ReconstructType(type));
 }
+
 LazyBool
 TypeSystemSwiftTypeRef::ShouldPrintAsOneLiner(opaque_compiler_type_t type,
                                               ValueObject *valobj) {
-  return m_swift_ast_context->ShouldPrintAsOneLiner(ReconstructType(type),
-                                                    valobj);
+  auto impl = [&]() {
+    if (type) {
+      if (IsImportedType(type, nullptr))
+        return eLazyBoolNo;
+    }
+    if (valobj) {
+      if (valobj->IsBaseClass())
+        return eLazyBoolNo;
+      if ((valobj->GetLanguageFlags() & LanguageFlags::eIsIndirectEnumCase) ==
+          LanguageFlags::eIsIndirectEnumCase)
+        return eLazyBoolNo;
+    }
+
+    return eLazyBoolCalculate;
+  };
+  VALIDATE_AND_RETURN(impl, ShouldPrintAsOneLiner, type,
+                      (ReconstructType(type), valobj));
 }
+
 bool TypeSystemSwiftTypeRef::IsMeaninglessWithoutDynamicResolution(
     opaque_compiler_type_t type) {
   auto impl = [&]() {

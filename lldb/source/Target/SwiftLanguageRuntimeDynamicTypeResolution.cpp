@@ -256,7 +256,7 @@ const CompilerType &SwiftLanguageRuntimeImpl::GetBoxMetadataType() {
   static ConstString g_type_name("__lldb_autogen_boxmetadata");
   const bool is_packed = false;
   if (TypeSystemClang *ast_ctx =
-          TypeSystemClang::GetScratch(m_process.GetTarget())) {
+          ScratchTypeSystemClang::GetForTarget(m_process.GetTarget())) {
     CompilerType voidstar =
         ast_ctx->GetBasicType(lldb::eBasicTypeVoid).GetPointerType();
     CompilerType uint32 = ast_ctx->GetIntTypeFromBitSize(32, false);
@@ -997,6 +997,39 @@ llvm::Optional<uint64_t> SwiftLanguageRuntimeImpl::GetMemberVariableOffset(
   return offset;
 }
 
+static CompilerType GetWeakReferent(TypeSystemSwiftTypeRef &ts,
+                                    CompilerType type) {
+  // FIXME: This is very similar to TypeSystemSwiftTypeRef::GetReferentType().
+  using namespace swift::Demangle;
+  Demangler dem;
+  auto mangled = type.GetMangledTypeName().GetStringRef();
+  NodePointer n = dem.demangleSymbol(mangled);
+  if (!n || n->getKind() != Node::Kind::Global || !n->hasChildren())
+    return {};
+  n = n->getFirstChild();
+  if (!n || n->getKind() != Node::Kind::TypeMangling || !n->hasChildren())
+    return {};
+  n = n->getFirstChild();
+  if (!n || n->getKind() != Node::Kind::Type || !n->hasChildren())
+    return {};
+  n = n->getFirstChild();
+  if (!n ||
+      (n->getKind() != Node::Kind::Weak &&
+       n->getKind() != Node::Kind::Unowned &&
+       n->getKind() != Node::Kind::Unmanaged) ||
+      !n->hasChildren())
+    return {};
+  n = n->getFirstChild();
+  if (!n || n->getKind() != Node::Kind::Type || !n->hasChildren())
+    return {};
+  // FIXME: We only need to canonicalize this node, not the entire type.
+  n = ts.CanonicalizeSugar(dem, n->getFirstChild());
+  if (!n || n->getKind() != Node::Kind::SugaredOptional || !n->hasChildren())
+    return {};
+  n = n->getFirstChild();
+  return ts.RemangleAsType(dem, n);
+}
+
 llvm::Optional<unsigned>
 SwiftLanguageRuntimeImpl::GetNumChildren(CompilerType type,
                                          ValueObject *valobj) {
@@ -1008,12 +1041,63 @@ SwiftLanguageRuntimeImpl::GetNumChildren(CompilerType type,
   // Try the static type metadata.
   auto frame =
       valobj ? valobj->GetExecutionContextRef().GetFrameSP().get() : nullptr;
-  auto *ti = GetTypeInfo(type, frame);
+  const swift::reflection::TypeRef *tr = nullptr;
+  auto *ti = GetTypeInfo(type, frame, &tr);
   // Structs and Tuples.
   if (auto *rti =
           llvm::dyn_cast_or_null<swift::reflection::RecordTypeInfo>(ti)) {
-    auto fields = rti->getFields();
-    return fields.size();
+    switch (rti->getRecordKind()) {
+    case swift::reflection::RecordKind::ThickFunction:
+      // There are two fields, `function` and `context`, but they're not exposed
+      // by lldb.
+      return 0;
+    case swift::reflection::RecordKind::OpaqueExistential:
+      // `OpaqueExistential` is documented as:
+      //     An existential is a three-word buffer followed by value metadata...
+      // The buffer is exposed as children named `payload_data_{0,1,2}`, and
+      // the number of fields are increased to match.
+      return rti->getNumFields() + 3;
+    default:
+      return rti->getNumFields();
+    }
+  }
+  if (auto *eti = llvm::dyn_cast_or_null<swift::reflection::EnumTypeInfo>(ti)) {
+    return eti->getNumPayloadCases();
+  }
+  // Objects.
+  if (auto *rti =
+      llvm::dyn_cast_or_null<swift::reflection::ReferenceTypeInfo>(ti)) {
+
+    switch (rti->getReferenceKind()) {
+    case swift::reflection::ReferenceKind::Weak:
+    case swift::reflection::ReferenceKind::Unowned:
+    case swift::reflection::ReferenceKind::Unmanaged:
+      // Weak references are implicitly Optionals, so report the one
+      // child of Optional here.
+      if (GetWeakReferent(*ts, type))
+        return 1;
+      break;
+    default:
+      break;
+    }
+
+    if (!tr)
+      return {};
+
+    auto *reflection_ctx = GetReflectionContext();
+    auto &builder = reflection_ctx->getBuilder();
+    auto tc = swift::reflection::TypeConverter(builder);
+    LLDBTypeInfoProvider tip(*this, *ts);
+    auto *cti = tc.getClassInstanceTypeInfo(tr, 0, &tip);
+    if (auto *rti =
+            llvm::dyn_cast_or_null<swift::reflection::RecordTypeInfo>(cti)) {
+      // The superclass, if any, is an extra child.
+      if (builder.lookupSuperclass(tr))
+        return rti->getNumFields() + 1;
+      return rti->getNumFields();
+    }
+
+    return {};
   }
   // FIXME: Implement more cases.
   return {};
@@ -1049,38 +1133,6 @@ static llvm::StringRef GetBaseName(swift::Demangle::NodePointer node) {
   }
 }
 
-static CompilerType GetWeakReferent(TypeSystemSwiftTypeRef &ts,
-                                    CompilerType type) {
-  using namespace swift::Demangle;
-  Demangler dem;
-  auto mangled = type.GetMangledTypeName().GetStringRef();
-  NodePointer n = dem.demangleSymbol(mangled);
-  if (!n || n->getKind() != Node::Kind::Global || !n->hasChildren())
-    return {};
-  n = n->getFirstChild();
-  if (!n || n->getKind() != Node::Kind::TypeMangling || !n->hasChildren())
-    return {};
-  n = n->getFirstChild();
-  if (!n || n->getKind() != Node::Kind::Type || !n->hasChildren())
-    return {};
-  n = n->getFirstChild();
-  if (!n ||
-      (n->getKind() != Node::Kind::Weak &&
-       n->getKind() != Node::Kind::Unowned &&
-       n->getKind() != Node::Kind::Unmanaged) ||
-      !n->hasChildren())
-    return {};
-  n = n->getFirstChild();
-  if (!n || n->getKind() != Node::Kind::Type || !n->hasChildren())
-    return {};
-  // FIXME: We only need to canonicalize this node, not the entire type.
-  n = ts.CanonicalizeSugar(dem, n->getFirstChild());
-  if (!n || n->getKind() != Node::Kind::SugaredOptional || !n->hasChildren())
-    return {};
-  n = n->getFirstChild();
-  return ts.RemangleAsType(dem, n);
-}
-
 static CompilerType
 GetTypeFromTypeRef(TypeSystemSwiftTypeRef &ts,
                    const swift::reflection::TypeRef *type_ref) {
@@ -1089,7 +1141,6 @@ GetTypeFromTypeRef(TypeSystemSwiftTypeRef &ts,
   swift::Demangle::Demangler dem;
   swift::Demangle::NodePointer node = type_ref->getDemangling(dem);
   return ts.RemangleAsType(dem, node);
-  return ts.RemangleAsSwiftifiedType(dem, node);
 }
 
 CompilerType SwiftLanguageRuntimeImpl::GetChildCompilerTypeAtIndex(
@@ -1125,7 +1176,7 @@ CompilerType SwiftLanguageRuntimeImpl::GetChildCompilerTypeAtIndex(
     CompilerType result =
         tuple ? tuple->element_type : GetTypeFromTypeRef(*ts, field.TR);
     // Bug-for-bug compatibility. See comment in SwiftASTContext::GetBitSize().
-    if (result.IsFunctionType(nullptr))
+    if (result.IsFunctionType())
       child_byte_size = ts->GetPointerByteSize();
     return result;
   };
@@ -1723,6 +1774,8 @@ SwiftLanguageRuntimeImpl::BindGenericTypeParameters(StackFrame &stack_frame,
 
     const swift::reflection::TypeRef *type_ref =
         reflection_ctx->readTypeFromMetadata(*metadata_location);
+    if (!type_ref)
+      return;
     substitutions.insert({{depth, index}, type_ref});
   });
 
@@ -2494,9 +2547,9 @@ SwiftLanguageRuntimeImpl::GetTypeRef(CompilerType type,
   return type_ref;
 }
 
-const swift::reflection::TypeInfo *
-SwiftLanguageRuntimeImpl::GetTypeInfo(CompilerType type,
-                                      ExecutionContextScope *exe_scope) {
+const swift::reflection::TypeInfo *SwiftLanguageRuntimeImpl::GetTypeInfo(
+    CompilerType type, ExecutionContextScope *exe_scope,
+    swift::reflection::TypeRef const **out_tr) {
   auto *ts = llvm::dyn_cast_or_null<TypeSystemSwift>(type.GetTypeSystem());
   if (!ts)
     return nullptr;
@@ -2526,6 +2579,9 @@ SwiftLanguageRuntimeImpl::GetTypeInfo(CompilerType type,
       GetTypeRef(type, ts->GetSwiftASTContext());
   if (!type_ref)
     return nullptr;
+
+  if (out_tr)
+    *out_tr = type_ref;
 
   auto *reflection_ctx = GetReflectionContext();
   if (!reflection_ctx)

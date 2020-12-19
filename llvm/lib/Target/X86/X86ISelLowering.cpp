@@ -30285,6 +30285,13 @@ void X86TargetLowering::ReplaceNodeResults(SDNode *N,
     Results.push_back(V);
     return;
   }
+  case ISD::BITREVERSE:
+    assert(N->getValueType(0) == MVT::i64 && "Unexpected VT!");
+    assert(Subtarget.hasXOP() && "Expected XOP");
+    // We can use VPPERM by copying to a vector register and back. We'll need
+    // to move the scalar in two i32 pieces.
+    Results.push_back(LowerBITREVERSE(SDValue(N, 0), Subtarget, DAG));
+    return;
   }
 }
 
@@ -36018,8 +36025,10 @@ static SDValue combineTargetShuffle(SDValue N, SelectionDAG &DAG,
       return DAG.getNode(X86ISD::VBROADCAST, DL, VT, Src.getOperand(0));
 
     // Share broadcast with the longest vector and extract low subvector (free).
+    // Ensure the same SDValue from the SDNode use is being used.
     for (SDNode *User : Src->uses())
       if (User != N.getNode() && User->getOpcode() == X86ISD::VBROADCAST &&
+          Src == User->getOperand(0) &&
           User->getValueSizeInBits(0) > VT.getSizeInBits()) {
         return extractSubVector(SDValue(User, 0), 0, DAG, DL,
                                 VT.getSizeInBits());

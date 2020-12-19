@@ -4180,7 +4180,7 @@ void SwiftASTContext::CacheDemangledTypeFailure(ConstString name) {
 /// What we should really do is only mangle AST types in DebugInfo, but that
 /// requires some more plumbing on the Swift side to properly handle generic
 /// specializations.
-swift::Type convertSILFunctionTypesToASTFunctionTypes(swift::Type t) {
+static swift::Type ConvertSILFunctionTypesToASTFunctionTypes(swift::Type t) {
   return t.transform([](swift::Type t) -> swift::Type {
     if (auto *silFn = t->getAs<swift::SILFunctionType>())
       return swift::FunctionType::get({}, t->getASTContext().TheEmptyTupleType);
@@ -4300,14 +4300,18 @@ swift::TypeBase *SwiftASTContext::ReconstructType(ConstString mangled_typename,
                    .getPointer();
 
   if (found_type) {
-    found_type =
-        convertSILFunctionTypesToASTFunctionTypes(found_type).getPointer();
-    CacheDemangledType(mangled_typename, found_type);
-    CompilerType result_type = ToCompilerType(found_type);
-    assert(&found_type->getASTContext() == ast_ctx);
+    swift::TypeBase *ast_type =
+        ConvertSILFunctionTypesToASTFunctionTypes(found_type).getPointer();
+    // This transformation is lossy: all SILFunction types are mapped
+    // to the same AST type. We thus cannot cache the result, since
+    // the mapping isn't bijective.
+    if (ast_type == found_type)
+      CacheDemangledType(mangled_typename, ast_type);
+    CompilerType result_type = ToCompilerType(ast_type);
+    assert(&ast_type->getASTContext() == ast_ctx);
     LOG_PRINTF(LIBLLDB_LOG_TYPES, "(\"%s\") -- found %s", mangled_cstr,
                result_type.GetTypeName().GetCString());
-    return found_type;
+    return ast_type;
   }
 
   LOG_PRINTF(LIBLLDB_LOG_TYPES, "(\"%s\") -- not found", mangled_cstr);
@@ -7436,21 +7440,6 @@ size_t SwiftASTContext::GetIndexOfChildMemberWithName(
     }
   }
   return 0;
-}
-
-/// Get the index of the child of "clang_type" whose name matches. This
-/// function doesn't descend into the children, but only looks one
-/// level deep and name matches can include base class names.
-uint32_t
-SwiftASTContext::GetIndexOfChildWithName(opaque_compiler_type_t type,
-                                         const char *name,
-                                         bool omit_empty_base_classes) {
-  VALID_OR_RETURN(UINT32_MAX);
-
-  std::vector<uint32_t> child_indexes;
-  size_t num_child_indexes = GetIndexOfChildMemberWithName(
-      type, name, omit_empty_base_classes, child_indexes);
-  return num_child_indexes == 1 ? child_indexes.front() : UINT32_MAX;
 }
 
 size_t SwiftASTContext::GetNumTemplateArguments(opaque_compiler_type_t type) {

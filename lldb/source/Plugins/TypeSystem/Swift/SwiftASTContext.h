@@ -452,8 +452,7 @@ public:
 
   bool IsDefined(lldb::opaque_compiler_type_t type) override;
 
-  bool IsFunctionType(lldb::opaque_compiler_type_t type,
-                      bool *is_variadic_ptr) override;
+  bool IsFunctionType(lldb::opaque_compiler_type_t type) override;
 
   size_t
   GetNumberOfFunctionArguments(lldb::opaque_compiler_type_t type) override;
@@ -540,7 +539,6 @@ public:
   CompilerType GetTypeRefType(lldb::opaque_compiler_type_t type);
 
   CompilerType GetArrayElementType(lldb::opaque_compiler_type_t type,
-                                   uint64_t *stride,
                                    ExecutionContextScope *exe_scope) override;
 
   CompilerType GetCanonicalType(lldb::opaque_compiler_type_t type) override;

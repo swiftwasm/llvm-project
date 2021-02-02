@@ -433,7 +433,8 @@ SwiftArrayBufferHandler::CreateBufferHandler(ValueObject &valobj) {
 
       std::unique_ptr<SwiftArrayBufferHandler> handler;
       if (masked_storage_location == storage_location) {
-        CompilerType elem_type(valobj.GetCompilerType().GetArrayElementType(exe_scope));
+        CompilerType elem_type(
+            valobj.GetCompilerType().GetArrayElementType(exe_scope));
         handler.reset(new SwiftArrayNativeBufferHandler(
             valobj, storage_location, elem_type));
       } else {

@@ -22,6 +22,7 @@
 #include "lldb/Utility/GDBRemote.h"
 #include "lldb/Utility/ProcessInfo.h"
 #include "lldb/Utility/StructuredData.h"
+#include "lldb/Utility/TraceOptions.h"
 #if defined(_WIN32)
 #include "lldb/Host/windows/PosixApi.h"
 #endif
@@ -375,6 +376,9 @@ public:
 
   lldb::user_id_t GetFileSize(const FileSpec &file_spec);
 
+  void AutoCompleteDiskFileOrDirectory(CompletionRequest &request,
+                                       bool only_dir);
+
   Status GetFilePermissions(const FileSpec &file_spec,
                             uint32_t &file_permissions);
 
@@ -515,6 +519,8 @@ public:
                                size_t offset = 0);
 
   Status SendGetTraceConfigPacket(lldb::user_id_t uid, TraceOptions &options);
+
+  llvm::Expected<TraceTypeInfo> SendGetSupportedTraceType();
 
 protected:
   LazyBool m_supports_not_sending_acks;

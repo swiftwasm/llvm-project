@@ -1,7 +1,7 @@
 # REQUIRES: swift_Benchmark_Onone
 #
+# The test has regressed, tracked by: rdar://73760364
 # XFAIL: *
-# rdar://problem/70552614
 #
 # - Don't capture a reproducer (it can easily exceed 1GB).
 # - Skip `po` testing for now (until we can un-XFAIL `frame var` testing).

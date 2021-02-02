@@ -1722,8 +1722,7 @@ bool TypeSystemSwiftTypeRef::IsDefined(opaque_compiler_type_t type) {
                       (ReconstructType(type)));
 }
 
-bool TypeSystemSwiftTypeRef::IsFunctionType(opaque_compiler_type_t type,
-                                            bool *is_variadic_ptr) {
+bool TypeSystemSwiftTypeRef::IsFunctionType(opaque_compiler_type_t type) {
   auto impl = [&]() -> bool {
     using namespace swift::Demangle;
     Demangler dem;
@@ -1733,9 +1732,8 @@ bool TypeSystemSwiftTypeRef::IsFunctionType(opaque_compiler_type_t type,
     return node && (node->getKind() == Node::Kind::FunctionType ||
                     node->getKind() == Node::Kind::ImplFunctionType);
   };
-  VALIDATE_AND_RETURN(impl, IsFunctionType, type,
-                      (ReconstructType(type), nullptr),
-                      (ReconstructType(type), is_variadic_ptr));
+  VALIDATE_AND_RETURN(impl, IsFunctionType, type, (ReconstructType(type)),
+                      (ReconstructType(type)));
 }
 size_t TypeSystemSwiftTypeRef::GetNumberOfFunctionArguments(
     opaque_compiler_type_t type) {
@@ -1810,7 +1808,7 @@ TypeSystemSwiftTypeRef::GetFunctionArgumentAtIndex(opaque_compiler_type_t type,
 }
 bool TypeSystemSwiftTypeRef::IsFunctionPointerType(
     opaque_compiler_type_t type) {
-  auto impl = [&]() -> bool { return IsFunctionType(type, nullptr); };
+  auto impl = [&]() -> bool { return IsFunctionType(type); };
   VALIDATE_AND_RETURN(impl, IsFunctionPointerType, type,
                       (ReconstructType(type)), (ReconstructType(type)));
 }
@@ -2002,7 +2000,6 @@ TypeSystemSwiftTypeRef::GetTypeClass(opaque_compiler_type_t type) {
 // Creating related types
 CompilerType
 TypeSystemSwiftTypeRef::GetArrayElementType(opaque_compiler_type_t type,
-                                            uint64_t *stride,
                                             ExecutionContextScope *exe_scope) {
   auto impl = [&]() {
     CompilerType element_type;
@@ -2010,8 +2007,8 @@ TypeSystemSwiftTypeRef::GetArrayElementType(opaque_compiler_type_t type,
     return element_type;
   };
   VALIDATE_AND_RETURN(impl, GetArrayElementType, type,
-                      (ReconstructType(type), nullptr, exe_scope),
-                      (ReconstructType(type), stride, exe_scope));
+                      (ReconstructType(type), exe_scope),
+                      (ReconstructType(type), exe_scope));
 }
 
 CompilerType
@@ -2116,7 +2113,7 @@ TypeSystemSwiftTypeRef::GetBitSize(opaque_compiler_type_t type,
                                    ExecutionContextScope *exe_scope) {
   auto impl = [&]() -> llvm::Optional<uint64_t> {
     // Bug-for-bug compatibility. See comment in SwiftASTContext::GetBitSize().
-    if (IsFunctionType(type, nullptr))
+    if (IsFunctionType(type))
       return GetPointerByteSize() * 8;
 
     // Clang types can be resolved even without a process.
@@ -2644,7 +2641,7 @@ bool TypeSystemSwiftTypeRef::IsMeaninglessWithoutDynamicResolution(
     using namespace swift::Demangle;
     Demangler dem;
     auto *node = DemangleCanonicalType(dem, type);
-    return ContainsGenericTypeParameter(node) && !IsFunctionType(type, nullptr);
+    return ContainsGenericTypeParameter(node) && !IsFunctionType(type);
   };
   VALIDATE_AND_RETURN(impl, IsMeaninglessWithoutDynamicResolution, type,
                       (ReconstructType(type)), (ReconstructType(type)));

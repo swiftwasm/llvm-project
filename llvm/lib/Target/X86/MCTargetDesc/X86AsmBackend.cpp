@@ -207,6 +207,8 @@ public:
 
   void finishLayout(MCAssembler const &Asm, MCAsmLayout &Layout) const override;
 
+  unsigned getMaximumNopSize() const override;
+
   bool writeNopData(raw_ostream &OS, uint64_t Count) const override;
 };
 } // end anonymous namespace
@@ -1067,6 +1069,21 @@ void X86AsmBackend::finishLayout(MCAssembler const &Asm,
   }
 }
 
+unsigned X86AsmBackend::getMaximumNopSize() const {
+  if (!STI.hasFeature(X86::FeatureNOPL) && !STI.hasFeature(X86::Mode64Bit))
+    return 1;
+  if (STI.getFeatureBits()[X86::FeatureFast7ByteNOP])
+    return 7;
+  if (STI.getFeatureBits()[X86::FeatureFast15ByteNOP])
+    return 15;
+  if (STI.getFeatureBits()[X86::FeatureFast11ByteNOP])
+    return 11;
+  // FIXME: handle 32-bit mode
+  // 15-bytes is the longest single NOP instruction, but 10-bytes is
+  // commonly the longest that can be efficiently decoded.
+  return 10;
+}
+
 /// Write a sequence of optimal nops to the output, covering \p Count
 /// bytes.
 /// \return - true on success, false on failure
@@ -1094,23 +1111,7 @@ bool X86AsmBackend::writeNopData(raw_ostream &OS, uint64_t Count) const {
     "\x66\x2e\x0f\x1f\x84\x00\x00\x00\x00\x00",
   };
 
-  // This CPU doesn't support long nops. If needed add more.
-  // FIXME: We could generated something better than plain 0x90.
-  if (!STI.hasFeature(X86::FeatureNOPL) && !STI.hasFeature(X86::Mode64Bit)) {
-    for (uint64_t i = 0; i < Count; ++i)
-      OS << '\x90';
-    return true;
-  }
-
-  // 15-bytes is the longest single NOP instruction, but 10-bytes is
-  // commonly the longest that can be efficiently decoded.
-  uint64_t MaxNopLength = 10;
-  if (STI.getFeatureBits()[X86::FeatureFast7ByteNOP])
-    MaxNopLength = 7;
-  else if (STI.getFeatureBits()[X86::FeatureFast15ByteNOP])
-    MaxNopLength = 15;
-  else if (STI.getFeatureBits()[X86::FeatureFast11ByteNOP])
-    MaxNopLength = 11;
+  uint64_t MaxNopLength = (uint64_t)getMaximumNopSize();
 
   // Emit as many MaxNopLength NOPs as needed, then emit a NOP of the remaining
   // length.
@@ -1237,7 +1238,7 @@ namespace CU {
     UNWIND_FRAMELESS_STACK_REG_PERMUTATION = 0x000003FF
   };
 
-} // end CU namespace
+} // namespace CU
 
 class DarwinX86AsmBackend : public X86AsmBackend {
   const MCRegisterInfo &MRI;
@@ -1424,6 +1425,7 @@ public:
     unsigned StackAdjust = 0;
     unsigned StackSize = 0;
     unsigned NumDefCFAOffsets = 0;
+    int MinAbsOffset = std::numeric_limits<int>::max();
 
     for (unsigned i = 0, e = Instrs.size(); i != e; ++i) {
       const MCCFIInstruction &Inst = Instrs[i];
@@ -1452,6 +1454,7 @@ public:
         memset(SavedRegs, 0, sizeof(SavedRegs));
         StackAdjust = 0;
         SavedRegIdx = 0;
+        MinAbsOffset = std::numeric_limits<int>::max();
         InstrOffset += MoveInstrSize;
         break;
       }
@@ -1495,6 +1498,7 @@ public:
         unsigned Reg = *MRI.getLLVMRegNum(Inst.getRegister(), true);
         SavedRegs[SavedRegIdx++] = Reg;
         StackAdjust += OffsetSize;
+        MinAbsOffset = std::min(MinAbsOffset, abs(Inst.getOffset()));
         InstrOffset += PushInstrSize(Reg);
         break;
       }
@@ -1506,6 +1510,11 @@ public:
     if (HasFP) {
       if ((StackAdjust & 0xFF) != StackAdjust)
         // Offset was too big for a compact unwind encoding.
+        return CU::UNWIND_MODE_DWARF;
+
+      // We don't attempt to track a real StackAdjust, so if the saved registers
+      // aren't adjacent to rbp we can't cope.
+      if (SavedRegIdx != 0 && MinAbsOffset != 3 * (int)OffsetSize)
         return CU::UNWIND_MODE_DWARF;
 
       // Get the encoding of the saved registers when we have a frame pointer.

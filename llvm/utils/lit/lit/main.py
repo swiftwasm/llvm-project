@@ -39,7 +39,8 @@ def main(builtin_params={}):
         config_prefix=opts.configPrefix,
         echo_all_commands=opts.echoAllCommands)
 
-    discovered_tests = lit.discovery.find_tests_for_inputs(lit_config, opts.test_paths)
+    discovered_tests = lit.discovery.find_tests_for_inputs(lit_config, opts.test_paths,
+                                                           opts.indirectlyRunCheck)
     if not discovered_tests:
         sys.stderr.write('error: did not discover any tests for provided path(s)\n')
         sys.exit(2)
@@ -80,9 +81,13 @@ def main(builtin_params={}):
                              'error.\n')
             sys.exit(2)
 
+    # When running multiple shards, don't include skipped tests in the xunit
+    # output since merging the files will result in duplicates.
+    tests_for_report = discovered_tests
     if opts.shard:
         (run, shards) = opts.shard
         selected_tests = filter_by_shard(selected_tests, run, shards, lit_config)
+        tests_for_report = selected_tests
         if not selected_tests:
             sys.stderr.write('warning: shard does not contain any tests.  '
                              'Consider decreasing the number of shards.\n')
@@ -102,7 +107,7 @@ def main(builtin_params={}):
     print_results(discovered_tests, elapsed, opts)
 
     for report in opts.reports:
-        report.write_results(discovered_tests, elapsed)
+        report.write_results(tests_for_report, elapsed)
 
     if lit_config.numErrors:
         sys.stderr.write('\n%d error(s) in tests\n' % lit_config.numErrors)

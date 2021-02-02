@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_LEX_MODULEMAP_H
 #define LLVM_CLANG_LEX_MODULEMAP_H
 
+#include "clang/Basic/FileEntry.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/Module.h"
@@ -37,7 +38,6 @@ namespace clang {
 
 class DiagnosticsEngine;
 class DirectoryEntry;
-class FileEntry;
 class FileManager;
 class HeaderSearch;
 class SourceManager;
@@ -339,10 +339,9 @@ private:
   /// \param NeedsFramework If M is not a framework but a missing header would
   ///        be found in case M was, set it to true. False otherwise.
   /// \return The resolved file, if any.
-  const FileEntry *findHeader(Module *M,
-                              const Module::UnresolvedHeaderDirective &Header,
-                              SmallVectorImpl<char> &RelativePathName,
-                              bool &NeedsFramework);
+  Optional<FileEntryRef>
+  findHeader(Module *M, const Module::UnresolvedHeaderDirective &Header,
+             SmallVectorImpl<char> &RelativePathName, bool &NeedsFramework);
 
   /// Resolve the given header directive.
   ///
@@ -660,13 +659,13 @@ public:
 
   /// Sets the umbrella header of the given module to the given
   /// header.
-  void setUmbrellaHeader(Module *Mod, const FileEntry *UmbrellaHeader,
+  void setUmbrellaHeader(Module *Mod, FileEntryRef UmbrellaHeader,
                          Twine NameAsWritten,
                          Twine PathRelativeToRootModuleDirectory);
 
   /// Sets the umbrella directory of the given module to the given
   /// directory.
-  void setUmbrellaDir(Module *Mod, const DirectoryEntry *UmbrellaDir,
+  void setUmbrellaDir(Module *Mod, DirectoryEntryRef UmbrellaDir,
                       Twine NameAsWritten,
                       Twine PathRelativeToRootModuleDirectory);
 

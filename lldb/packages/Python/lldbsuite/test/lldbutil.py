@@ -561,7 +561,7 @@ def run_break_set_by_file_colon_line(
         file_name = path,
         line_number = line_number,
         column_number = column_number)
-    
+
     return get_bpno_from_match(break_results)
 
 def run_break_set_command(test, command):
@@ -1613,7 +1613,8 @@ def packetlog_get_process_info(log):
     return process_info
 
 def packetlog_get_dylib_info(log):
-    """parse a gdb-remote packet log file and extract the *last* response to jGetLoadedDynamicLibrariesInfos"""
+    """parse a gdb-remote packet log file and extract the *last* complete
+    (=> fetch_all_solibs=true) response to jGetLoadedDynamicLibrariesInfos"""
     import json
     dylib_info = None
     with open(log, "r") as logfile:
@@ -1627,7 +1628,7 @@ def packetlog_get_dylib_info(log):
                 # Unescape '}'.
                 dylib_info = json.loads(line.replace('}]','}')[:-4])
                 expect_dylib_info_response = False
-            if 'send packet: $jGetLoadedDynamicLibrariesInfos:{' in line:
+            if 'send packet: $jGetLoadedDynamicLibrariesInfos:{"fetch_all_solibs":true}' in line:
                 expect_dylib_info_response = True
 
     return dylib_info

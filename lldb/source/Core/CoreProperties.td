@@ -16,6 +16,9 @@ let Definition = "modulelist" in {
   def UseSwiftDWARFImporter: Property<"use-swift-dwarfimporter", "Boolean">,
     DefaultTrue,
     Desc<"Reconstruct Clang module dependencies from DWARF when debugging Swift code">;
+  def UseSwiftTypeRefTypeSystem: Property<"use-swift-typeref-typesystem", "Boolean">,
+    DefaultTrue,
+    Desc<"Prefer Swift Remote Mirrors over Remote AST">;
   def SwiftModuleLoadingMode: Property<"swift-module-loading-mode", "Enum">,
     DefaultEnumValue<"eSwiftModuleLoadingModePreferSerialized">,
     EnumValues<"OptionEnumValues(g_swift_module_loading_mode_enums)">,
@@ -143,4 +146,8 @@ let Definition = "debugger" in {
     Global,
     DefaultStringValue<"frame #${frame.index}: ${ansi.fg.yellow}${frame.pc}${ansi.normal}{ ${module.file.basename}{`${function.name-without-args}{${frame.no-debug}${function.pc-offset}}}}{ at ${ansi.fg.cyan}${line.file.basename}${ansi.normal}:${ansi.fg.yellow}${line.number}${ansi.normal}{:${ansi.fg.yellow}${line.column}${ansi.normal}}}{${function.is-optimized} [opt]}{${frame.is-artificial} [artificial]}\\\\n">,
     Desc<"The default frame format string to use when displaying stack frameinformation for threads from thread backtrace unique.">;
+  def ShowAutosuggestion: Property<"show-autosuggestion", "Boolean">,
+    Global,
+    DefaultFalse,
+    Desc<"If true, LLDB will show suggestions to complete the command the user typed.">;
 }

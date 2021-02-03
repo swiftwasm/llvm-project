@@ -114,21 +114,6 @@ def lldb_iter(obj, getsize, getelem):
     for i in range(size()):
         yield elem(i)
 
-class Py_buffer_RAII(object):
-    r"""Proxy of C++ Py_buffer_RAII class."""
-
-    thisown = property(lambda x: x.this.own(), lambda x, v: x.this.own(v), doc="The membership flag")
-    __repr__ = _swig_repr
-    buffer = property(_lldb.Py_buffer_RAII_buffer_get, _lldb.Py_buffer_RAII_buffer_set, doc=r"""buffer : Py_buffer""")
-
-    def __init__(self):
-        r"""__init__(Py_buffer_RAII self) -> Py_buffer_RAII"""
-        _lldb.Py_buffer_RAII_swiginit(self, _lldb.new_Py_buffer_RAII())
-    __swig_destroy__ = _lldb.delete_Py_buffer_RAII
-
-# Register Py_buffer_RAII in _lldb:
-_lldb.Py_buffer_RAII_swigregister(Py_buffer_RAII)
-
 INT32_MAX = _lldb.INT32_MAX
 
 UINT32_MAX = _lldb.UINT32_MAX
@@ -1533,6 +1518,8 @@ eCommandProcessMustBeLaunched = _lldb.eCommandProcessMustBeLaunched
 
 eCommandProcessMustBePaused = _lldb.eCommandProcessMustBePaused
 
+eCommandProcessMustBeTraced = _lldb.eCommandProcessMustBeTraced
+
 eTypeSummaryCapped = _lldb.eTypeSummaryCapped
 
 eTypeSummaryUncapped = _lldb.eTypeSummaryUncapped
@@ -1901,7 +1888,7 @@ class SBBlock(object):
     def IsInlined(self):
         r"""
         IsInlined(SBBlock self) -> bool
-        Does this block represent an inlined function?
+        Is this block contained within an inlined function?
         """
         return _lldb.SBBlock_IsInlined(self)
 
@@ -12095,6 +12082,10 @@ class SBType(object):
         r"""IsAnonymousType(SBType self) -> bool"""
         return _lldb.SBType_IsAnonymousType(self)
 
+    def IsScopedEnumerationType(self):
+        r"""IsScopedEnumerationType(SBType self) -> bool"""
+        return _lldb.SBType_IsScopedEnumerationType(self)
+
     def GetPointerType(self):
         r"""GetPointerType(SBType self) -> SBType"""
         return _lldb.SBType_GetPointerType(self)
@@ -12122,6 +12113,10 @@ class SBType(object):
     def GetCanonicalType(self):
         r"""GetCanonicalType(SBType self) -> SBType"""
         return _lldb.SBType_GetCanonicalType(self)
+
+    def GetEnumerationIntegerType(self):
+        r"""GetEnumerationIntegerType(SBType self) -> SBType"""
+        return _lldb.SBType_GetEnumerationIntegerType(self)
 
     def GetArrayElementType(self):
         r"""GetArrayElementType(SBType self) -> SBType"""
@@ -12169,6 +12164,10 @@ class SBType(object):
     def GetEnumMembers(self):
         r"""GetEnumMembers(SBType self) -> SBTypeEnumMemberList"""
         return _lldb.SBType_GetEnumMembers(self)
+
+    def GetModule(self):
+        r"""GetModule(SBType self) -> SBModule"""
+        return _lldb.SBType_GetModule(self)
 
     def GetName(self):
         r"""GetName(SBType self) -> char const *"""
@@ -12239,6 +12238,7 @@ class SBType(object):
             return template_args
         return None
 
+    module = property(GetModule, None, doc='''A read only property that returns the module in which type is defined.''') 
     name = property(GetName, None, doc='''A read only property that returns the name for this type as a string.''')
     size = property(GetByteSize, None, doc='''A read only property that returns size in bytes for this type as an integer.''')
     is_pointer = property(IsPointerType, None, doc='''A read only property that returns a boolean value that indicates if this type is a pointer type.''')

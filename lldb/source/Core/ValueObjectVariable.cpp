@@ -112,15 +112,15 @@ size_t ValueObjectVariable::CalculateNumChildren(uint32_t max) {
   return child_count <= max ? child_count : max;
 }
 
-uint64_t ValueObjectVariable::GetByteSize() {
+llvm::Optional<uint64_t> ValueObjectVariable::GetByteSize() {
   ExecutionContext exe_ctx(GetExecutionContextRef());
 
   CompilerType type(GetCompilerType());
 
   if (!type.IsValid())
-    return 0;
+    return {};
 
-  return type.GetByteSize(exe_ctx.GetBestExecutionContextScope()).getValueOr(0);
+  return type.GetByteSize(exe_ctx.GetBestExecutionContextScope());
 }
 
 lldb::ValueType ValueObjectVariable::GetValueType() const {
@@ -256,7 +256,6 @@ bool ValueObjectVariable::UpdateValue() {
         break;
       case Value::eValueTypeLoadAddress:
       case Value::eValueTypeScalar:
-      case Value::eValueTypeVector:
         SetAddressTypeOfChildren(eAddressTypeLoad);
         break;
       }
@@ -285,8 +284,6 @@ bool ValueObjectVariable::UpdateValue() {
 #endif // LLDB_ENABLE_SWIFT
 
       switch (value_type) {
-      case Value::eValueTypeVector:
-      // fall through
       case Value::eValueTypeScalar:
         // The variable value is in the Scalar value inside the m_value. We can
         // point our m_data right to it.
@@ -384,7 +381,6 @@ void ValueObjectVariable::DoUpdateChildrenAddressType(ValueObject &valobj) {
     break;
   case Value::eValueTypeLoadAddress:
   case Value::eValueTypeScalar:
-  case Value::eValueTypeVector:
     valobj.SetAddressTypeOfChildren(eAddressTypeLoad);
     break;
   }

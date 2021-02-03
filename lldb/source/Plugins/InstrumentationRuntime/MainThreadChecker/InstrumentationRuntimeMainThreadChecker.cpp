@@ -125,9 +125,9 @@ static std::string TranslateObjCNameToSwiftName(std::string className,
 
     MyConsumer(swift::ObjCSelector selector) : selectorToLookup(selector) {}
 
-    virtual void foundDecl(swift::ValueDecl *VD,
+     void foundDecl(swift::ValueDecl *VD,
                            swift::DeclVisibilityKind Reason,
-                           swift::DynamicLookupInfo) {
+                           swift::DynamicLookupInfo) override{
       if (result)
         return; // Take the first result.
       swift::ClassDecl *cls = llvm::dyn_cast<swift::ClassDecl>(VD);
@@ -197,7 +197,7 @@ InstrumentationRuntimeMainThreadChecker::RetrieveReportData(
   std::string className = "";
   std::string selector = "";
   if (apiName.substr(0, 2) == "-[") {
-    size_t spacePos = apiName.find(" ");
+    size_t spacePos = apiName.find(' ');
     if (spacePos != std::string::npos) {
       className = apiName.substr(2, spacePos - 2);
       selector = apiName.substr(spacePos + 1, apiName.length() - spacePos - 2);

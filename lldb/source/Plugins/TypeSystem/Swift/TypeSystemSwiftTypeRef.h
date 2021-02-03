@@ -98,8 +98,7 @@ public:
                    bool *is_incomplete) override;
   bool IsAggregateType(lldb::opaque_compiler_type_t type) override;
   bool IsDefined(lldb::opaque_compiler_type_t type) override;
-  bool IsFunctionType(lldb::opaque_compiler_type_t type,
-                      bool *is_variadic_ptr) override;
+  bool IsFunctionType(lldb::opaque_compiler_type_t type) override;
   size_t
   GetNumberOfFunctionArguments(lldb::opaque_compiler_type_t type) override;
   CompilerType GetFunctionArgumentAtIndex(lldb::opaque_compiler_type_t type,
@@ -124,7 +123,6 @@ public:
 
   // Creating related types
   CompilerType GetArrayElementType(lldb::opaque_compiler_type_t type,
-                                   uint64_t *stride,
                                    ExecutionContextScope *exe_scope) override;
   CompilerType GetCanonicalType(lldb::opaque_compiler_type_t type) override;
   int GetFunctionArgumentCount(lldb::opaque_compiler_type_t type) override;

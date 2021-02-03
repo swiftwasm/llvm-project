@@ -1,9 +1,9 @@
 // RUN: %clang_cc1 -triple arm64-apple-ios -fptrauth-calls -fapple-kext -fno-rtti -emit-llvm -o - %s | FileCheck %s
 
-// CHECK: @_ZTV1A = unnamed_addr constant { [4 x i8*] } { [4 x i8*] [i8* null, i8* null, i8* bitcast ({ i8*, i32, i64, i64 }* @_ZNK1A3abcEv.ptrauth to i8*), i8* null] }
-// CHECK: @_ZTV4Base = unnamed_addr constant { [4 x i8*] } { [4 x i8*] [i8* null, i8* null, i8* bitcast ({ i8*, i32, i64, i64 }* @_ZNK4Base3abcEv.ptrauth to i8*), i8* null] }
-// CHECK: @_ZTV8Derived2 = unnamed_addr constant { [5 x i8*] } { [5 x i8*] [i8* null, i8* null, i8* null, i8* bitcast ({ i8*, i32, i64, i64 }* @_ZNK8Derived23efgEv.ptrauth to i8*), i8* null] }
-// CHECK: @_ZTV2D2 = unnamed_addr constant { [5 x i8*] } { [5 x i8*] [i8* null, i8* null, i8* null, i8* bitcast ({ i8*, i32, i64, i64 }* @_ZNK2D23abcEv.ptrauth to i8*), i8* null] }
+// CHECK: @_ZTV1A = dso_local unnamed_addr constant { [4 x i8*] } { [4 x i8*] [i8* null, i8* null, i8* bitcast ({ i8*, i32, i64, i64 }* @_ZNK1A3abcEv.ptrauth to i8*), i8* null] }
+// CHECK: @_ZTV4Base = dso_local unnamed_addr constant { [4 x i8*] } { [4 x i8*] [i8* null, i8* null, i8* bitcast ({ i8*, i32, i64, i64 }* @_ZNK4Base3abcEv.ptrauth to i8*), i8* null] }
+// CHECK: @_ZTV8Derived2 = {{.*}} unnamed_addr constant { [5 x i8*] } { [5 x i8*] [i8* null, i8* null, i8* null, i8* bitcast ({ i8*, i32, i64, i64 }* @_ZNK8Derived23efgEv.ptrauth to i8*), i8* null] }
+// CHECK: @_ZTV2D2 = {{.*}} unnamed_addr constant { [5 x i8*] } { [5 x i8*] [i8* null, i8* null, i8* null, i8* bitcast ({ i8*, i32, i64, i64 }* @_ZNK2D23abcEv.ptrauth to i8*), i8* null] }
 
 struct A {
   virtual const char* abc(void) const;
@@ -100,6 +100,6 @@ void FUNC4(Derived4* p) {
 // CHECK: %[[T5:[0-9]+]] = load void (%struct.Derived4*)*, void (%struct.Derived4*)** %[[VFN]]
 // CHECK: %[[T6:[0-9]+]] = ptrtoint void (%struct.Derived4*)** %[[VFN]] to i64
 // CHECK: %[[T7:[0-9]+]] = call i64 @llvm.ptrauth.blend.i64(i64 %[[T6]], i64 426)
-// CHECK: call void %[[T5]](%struct.Derived4* %{{.*}}) [ "ptrauth"(i32 0, i64 %[[T7]]) ]
+// CHECK: call void %[[T5]](%struct.Derived4* nonnull dereferenceable(8) %{{.*}}) [ "ptrauth"(i32 0, i64 %[[T7]]) ]
   p->abc();
 }

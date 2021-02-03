@@ -137,5 +137,23 @@ define void @simple_fp_elim(i8* swiftasync %ctx) "frame-pointer"="non-leaf" {
   ret void
 }
 
+define void @large_frame(i8* swiftasync %ctx) "frame-pointer"="all" {
+; CHECK-LABEL: large_frame:
+; CHECK: sub sp, sp, #48
+; CHECK: stp x28, x27, [sp, #8]
+; CHECK: stp x29, x30, [sp, #32]
+; CHECK-NOAUTH: str x22, [sp, #24]
+; CHECK: add x29, sp, #32
+; CHECK: sub sp, sp, #1024
+; [...]
+; CHECK: add sp, sp, #1024
+; CHECK: ldp x29, x30, [sp, #32]
+; CHECK: ldp x28, x27, [sp, #8]
+; CHECK: add sp, sp, #48
+; CHECK: ret
+  %var = alloca i8, i32 1024
+  ret void
+}
+
 declare void @bar(i32*)
 declare i8** @llvm.swift.async.context.addr()

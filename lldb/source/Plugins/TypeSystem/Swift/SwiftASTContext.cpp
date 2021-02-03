@@ -23,10 +23,10 @@
 #include "swift/AST/ASTMangler.h"
 #include "swift/AST/DebuggerClient.h"
 #include "swift/AST/Decl.h"
-#include "swift/AST/GenericParamList.h"
 #include "swift/AST/DiagnosticEngine.h"
 #include "swift/AST/DiagnosticsSema.h"
 #include "swift/AST/ExistentialLayout.h"
+#include "swift/AST/GenericParamList.h"
 #include "swift/AST/GenericSignature.h"
 #include "swift/AST/IRGenOptions.h"
 #include "swift/AST/ImportCache.h"
@@ -118,6 +118,7 @@
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/Utility/LLDBAssert.h"
 #include "lldb/Utility/Log.h"
+#include "lldb/Utility/ReproducerProvider.h"
 #include "lldb/Utility/Status.h"
 #include "lldb/Utility/XcodeSDK.h"
 #include "lldb/Utility/ReproducerProvider.h"
@@ -368,28 +369,24 @@ public:
       : SwiftEnumDescriptor(ast, swift_can_type, enum_decl,
                             SwiftEnumDescriptor::Kind::Empty) {}
 
-  virtual ElementInfo *
-  GetElementFromData(const lldb_private::DataExtractor &data, bool no_payload) {
+  ElementInfo *GetElementFromData(const lldb_private::DataExtractor &data,
+                                  bool no_payload) override {
     return nullptr;
   }
 
-  virtual size_t GetNumElementsWithPayload() { return 0; }
-
-  virtual size_t GetNumCStyleElements() { return 0; }
-
-  virtual ElementInfo *GetElementWithPayloadAtIndex(size_t idx) {
+  size_t GetNumElementsWithPayload() override { return 0; }
+  size_t GetNumCStyleElements() override { return 0; }
+  ElementInfo *GetElementWithPayloadAtIndex(size_t idx) override {
     return nullptr;
   }
 
-  virtual ElementInfo *GetElementWithNoPayloadAtIndex(size_t idx) {
+  ElementInfo *GetElementWithNoPayloadAtIndex(size_t idx) override {
     return nullptr;
   }
 
   static bool classof(const SwiftEnumDescriptor *S) {
     return S->GetKind() == SwiftEnumDescriptor::Kind::Empty;
   }
-
-  virtual ~SwiftEmptyEnumDescriptor() = default;
 };
 
 namespace std {
@@ -479,8 +476,8 @@ public:
     }
   }
 
-  virtual ElementInfo *
-  GetElementFromData(const lldb_private::DataExtractor &data, bool no_payload) {
+  ElementInfo *GetElementFromData(const lldb_private::DataExtractor &data,
+                                  bool no_payload) override {
     LOG_PRINTF(LIBLLDB_LOG_TYPES,
                "C-style enum - inspecting data to find enum case for type %s",
                GetTypeName().AsCString());
@@ -540,15 +537,14 @@ public:
     return iter->second.get();
   }
 
-  virtual size_t GetNumElementsWithPayload() { return 0; }
+  size_t GetNumElementsWithPayload() override { return 0; }
+  size_t GetNumCStyleElements() override { return m_elements.size(); }
 
-  virtual size_t GetNumCStyleElements() { return m_elements.size(); }
-
-  virtual ElementInfo *GetElementWithPayloadAtIndex(size_t idx) {
+  ElementInfo *GetElementWithPayloadAtIndex(size_t idx) override {
     return nullptr;
   }
 
-  virtual ElementInfo *GetElementWithNoPayloadAtIndex(size_t idx) {
+  ElementInfo *GetElementWithNoPayloadAtIndex(size_t idx) override {
     if (idx >= m_element_indexes.size())
       return nullptr;
     return m_element_indexes[idx];
@@ -619,8 +615,8 @@ public:
     }
   }
 
-  virtual ElementInfo *
-  GetElementFromData(const lldb_private::DataExtractor &data, bool no_payload) {
+  ElementInfo *GetElementFromData(const lldb_private::DataExtractor &data,
+                                  bool no_payload) override {
     LOG_PRINTF(LIBLLDB_LOG_TYPES,
                "ADT-style enum - inspecting data to find enum case for type %s",
                GetTypeName().AsCString());
@@ -689,25 +685,22 @@ public:
     }
   }
 
-  virtual size_t GetNumElementsWithPayload() { return m_elements.size(); }
+  size_t GetNumElementsWithPayload() override { return m_elements.size(); }
+  size_t GetNumCStyleElements() override { return 0; }
 
-  virtual size_t GetNumCStyleElements() { return 0; }
-
-  virtual ElementInfo *GetElementWithPayloadAtIndex(size_t idx) {
+  ElementInfo *GetElementWithPayloadAtIndex(size_t idx) override {
     if (idx >= m_elements.size())
       return nullptr;
     return m_elements[idx].get();
   }
 
-  virtual ElementInfo *GetElementWithNoPayloadAtIndex(size_t idx) {
+  ElementInfo *GetElementWithNoPayloadAtIndex(size_t idx) override {
     return nullptr;
   }
 
   static bool classof(const SwiftEnumDescriptor *S) {
     return S->GetKind() == SwiftEnumDescriptor::Kind::AllPayload;
   }
-
-  virtual ~SwiftAllPayloadEnumDescriptor() = default;
 
 private:
   swift::ClusteredBitVector m_tag_bits;
@@ -724,8 +717,8 @@ public:
         m_non_payload_cases(ast, swift_can_type, enum_decl),
         m_payload_cases(ast, swift_can_type, enum_decl) {}
 
-  virtual ElementInfo *
-  GetElementFromData(const lldb_private::DataExtractor &data, bool no_payload) {
+  ElementInfo *GetElementFromData(const lldb_private::DataExtractor &data,
+                                  bool no_payload) override {
     ElementInfo *elem_info =
         m_non_payload_cases.GetElementFromData(data, false);
     return elem_info ? elem_info
@@ -736,23 +729,21 @@ public:
     return S->GetKind() == SwiftEnumDescriptor::Kind::Mixed;
   }
 
-  virtual size_t GetNumElementsWithPayload() {
+  size_t GetNumElementsWithPayload() override {
     return m_payload_cases.GetNumElementsWithPayload();
   }
 
-  virtual size_t GetNumCStyleElements() {
+  size_t GetNumCStyleElements() override {
     return m_non_payload_cases.GetNumCStyleElements();
   }
 
-  virtual ElementInfo *GetElementWithPayloadAtIndex(size_t idx) {
+  ElementInfo *GetElementWithPayloadAtIndex(size_t idx) override {
     return m_payload_cases.GetElementWithPayloadAtIndex(idx);
   }
 
-  virtual ElementInfo *GetElementWithNoPayloadAtIndex(size_t idx) {
+  ElementInfo *GetElementWithNoPayloadAtIndex(size_t idx) override {
     return m_non_payload_cases.GetElementWithNoPayloadAtIndex(idx);
   }
-
-  virtual ~SwiftMixedEnumDescriptor() = default;
 
 private:
   SwiftCStyleEnumDescriptor m_non_payload_cases;
@@ -772,23 +763,22 @@ public:
                GetTypeName().AsCString());
   }
 
-  virtual ElementInfo *
-  GetElementFromData(const lldb_private::DataExtractor &data, bool no_payload) {
+  ElementInfo *GetElementFromData(const lldb_private::DataExtractor &data,
+                                  bool no_payload) override {
     // Not yet supported by LLDB.
     return nullptr;
   }
-  virtual size_t GetNumElementsWithPayload() { return 0; }
-  virtual size_t GetNumCStyleElements() { return 0; }
-  virtual ElementInfo *GetElementWithPayloadAtIndex(size_t idx) {
+  size_t GetNumElementsWithPayload() override { return 0; }
+  size_t GetNumCStyleElements() override { return 0; }
+  ElementInfo *GetElementWithPayloadAtIndex(size_t idx) override {
     return nullptr;
   }
-  virtual ElementInfo *GetElementWithNoPayloadAtIndex(size_t idx) {
+  ElementInfo *GetElementWithNoPayloadAtIndex(size_t idx) override {
     return nullptr;
   }
   static bool classof(const SwiftEnumDescriptor *S) {
     return S->GetKind() == SwiftEnumDescriptor::Kind::Resilient;
   }
-  virtual ~SwiftResilientEnumDescriptor() = default;
 };
 
 SwiftEnumDescriptor *
@@ -1502,9 +1492,9 @@ void SwiftASTContext::AddExtraClangArgs(const std::vector<std::string>& source,
     if (!IsMacroDefinition(clang_argument))
       ApplyWorkingDir(clang_argument, cur_working_dir);
 
-    auto clang_arg_str = clang_argument.str();
+    std::string clang_arg_str = clang_argument.str().str();
     if (!ShouldUnique(clang_argument) || !unique_flags.count(clang_arg_str)) {
-      dest.push_back(std::string(clang_arg_str));
+      dest.push_back(clang_arg_str);
       unique_flags.insert(clang_arg_str);
     }
   }
@@ -2640,8 +2630,8 @@ public:
   /// \param BG if true change the background,
   ///        default: change foreground
   /// \returns itself so it can be used within << invocations.
-  virtual raw_ostream &changeColor(enum Colors colors, bool bold = false,
-                                   bool bg = false) {
+  raw_ostream &changeColor(enum Colors colors, bool bold = false,
+                           bool bg = false) override {
     if (llvm::sys::Process::ColorNeedsFlush())
       flush();
     const char *colorcode;
@@ -2659,7 +2649,7 @@ public:
 
   /// Resets the colors to terminal defaults. Call this when you are
   /// done outputting colored text, or before program exit.
-  virtual raw_ostream &resetColor() {
+  raw_ostream &resetColor() override {
     if (llvm::sys::Process::ColorNeedsFlush())
       flush();
     const char *colorcode = llvm::sys::Process::ResetColor();
@@ -2671,7 +2661,7 @@ public:
   }
 
   /// Reverses the forground and background colors.
-  virtual raw_ostream &reverseColor() {
+  raw_ostream &reverseColor() override {
     if (llvm::sys::Process::ColorNeedsFlush())
       flush();
     const char *colorcode = llvm::sys::Process::OutputReverse();
@@ -2685,11 +2675,11 @@ public:
   /// This function determines if this stream is connected to a "tty"
   /// or "console" window. That is, the output would be displayed to
   /// the user rather than being put on a pipe or stored in a file.
-  virtual bool is_displayed() const { return m_colorize; }
+  bool is_displayed() const override { return m_colorize; }
 
   /// This function determines if this stream is displayed and
   /// supports colors.
-  virtual bool has_colors() const { return m_colorize; }
+  bool has_colors() const override { return m_colorize; }
 
 protected:
   std::string m_buffer;
@@ -2709,8 +2699,8 @@ public:
     m_ast_context.GetDiagnosticEngine().takeConsumers();
   }
 
-  virtual void handleDiagnostic(swift::SourceManager &source_mgr,
-                                const swift::DiagnosticInfo &info) {
+  void handleDiagnostic(swift::SourceManager &source_mgr,
+                        const swift::DiagnosticInfo &info) override {
     llvm::StringRef bufferName = "<anonymous>";
     unsigned bufferID = 0;
     std::pair<unsigned, unsigned> line_col = {0, 0};
@@ -5075,8 +5065,7 @@ bool SwiftASTContext::IsAggregateType(opaque_compiler_type_t type) {
   return false;
 }
 
-bool SwiftASTContext::IsFunctionType(opaque_compiler_type_t type,
-                                     bool *is_variadic_ptr) {
+bool SwiftASTContext::IsFunctionType(opaque_compiler_type_t type) {
   if (type) {
     swift::CanType swift_can_type(GetCanonicalSwiftType(type));
     const swift::TypeKind type_kind = swift_can_type->getKind();
@@ -5125,7 +5114,7 @@ SwiftASTContext::GetFunctionArgumentAtIndex(opaque_compiler_type_t type,
 }
 
 bool SwiftASTContext::IsFunctionPointerType(opaque_compiler_type_t type) {
-  return IsFunctionType(type, nullptr); // FIXME: think about this
+  return IsFunctionType(type); // FIXME: think about this
 }
 
 bool SwiftASTContext::IsPointerType(opaque_compiler_type_t type,
@@ -5660,8 +5649,7 @@ lldb::TypeClass SwiftASTContext::GetTypeClass(opaque_compiler_type_t type) {
 
 CompilerType
 SwiftASTContext::GetArrayElementType(opaque_compiler_type_t type,
-                                     uint64_t *stride,
-                                     ExecutionContextScope *scope) {
+                                     ExecutionContextScope *exe_scope) {
   VALID_OR_RETURN(CompilerType());
 
   CompilerType element_type;

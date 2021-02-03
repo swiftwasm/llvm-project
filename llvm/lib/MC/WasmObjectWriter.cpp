@@ -376,8 +376,8 @@ void WasmObjectWriter::startCustomSection(SectionBookkeeping &Section,
     // pad section start to nearest 4 bytes for Clang PCH
     uint64_t MinLength = Section.PayloadOffset + 5ULL /* min ULEB128 length */ + Name.size();
     uint64_t RoundedUpLength = (MinLength + 3ULL) & ~3ULL;
-    encodeULEB128(Name.size(), W.OS, 5 + (RoundedUpLength - MinLength));
-    W.OS << Name;
+    encodeULEB128(Name.size(), W->OS, 5 + (RoundedUpLength - MinLength));
+    W->OS << Name;
   }
 
   // The position where the custom section starts.
@@ -1140,13 +1140,13 @@ void WasmObjectWriter::writeCustomSection(WasmCustomSection &CustomSection,
   auto *Sec = CustomSection.Section;
   startCustomSection(Section, CustomSection.Name);
 
-    if (CustomSection.Name == "__clangast") {
-      // pad to nearest 4 bytes
-      uint64_t RoundedUp = (Section.ContentsOffset + 3ULL) & ~3ULL;
-      for (uint64_t Count = 0; Count < RoundedUp - Section.ContentsOffset; Count++) {
-        W.OS << char(0);
-      }
+  if (CustomSection.Name == "__clangast") {
+    // pad to nearest 4 bytes
+    uint64_t RoundedUp = (Section.ContentsOffset + 3ULL) & ~3ULL;
+    for (uint64_t Count = 0; Count < RoundedUp - Section.ContentsOffset; Count++) {
+      W->OS << char(0);
     }
+  }
 
   Sec->setSectionOffset(W->OS.tell() - Section.ContentsOffset);
   Asm.writeSectionData(W->OS, Sec, Layout);

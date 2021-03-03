@@ -1593,6 +1593,8 @@ bool Equivalent(llvm::Optional<T> l, T r) {
     auto result = IMPL();                                                      \
     if (!m_swift_ast_context)                                                  \
       return result;                                                           \
+    if ((TYPE) && !ReconstructType(TYPE))                                      \
+      return result;                                                           \
     bool equivalent =                                                          \
         !ReconstructType(TYPE) /* missing .swiftmodule */ ||                   \
         (Equivalent(result, m_swift_ast_context->REFERENCE ARGS));             \
@@ -2147,8 +2149,11 @@ TypeSystemSwiftTypeRef::GetBitSize(opaque_compiler_type_t type,
     // If there is no process, we can still try to get the static size
     // information out of DWARF. Because it is stored in the Type
     // object we need to look that up by name again.
-    if (TypeSP type_sp = LookupTypeInModule(type))
-      return type_sp->GetByteSize(exe_scope);
+    if (TypeSP type_sp = LookupTypeInModule(type)) {
+      if (auto byte_size = type_sp->GetByteSize(exe_scope))
+        return *byte_size * 8;
+      else return {};
+    }
     LLDB_LOGF(GetLogIfAllCategoriesSet(LIBLLDB_LOG_TYPES),
               "Couldn't compute size of type %s without a process.",
               AsMangledName(type));

@@ -1486,6 +1486,15 @@ void SwiftASTContext::AddExtraClangArgs(const std::vector<std::string>& source,
     if (clang_argument.startswith("-Werror"))
       continue;
 
+    // Drop `--`. This might be coming from the user-provided setting
+    // swift-extra-clang-flags (where users sometimes think a -- is necessary
+    // to separate the flags from the settings name). `--` indicates to Clang
+    // that all following arguments are file names instead of flags, so this
+    // should never be passed to Clang (which would otherwise either crash or
+    // cause Clang to look for files with the name '-Wflag-name`).
+    if (clang_argument == "--")
+      continue;
+
     if (clang_argument.empty())
       continue;
 
@@ -2166,10 +2175,12 @@ lldb::TypeSystemSP SwiftASTContext::CreateInstance(lldb::LanguageType language,
             }
 
             if (!add_it) {
-              LOG_PRINTF(LIBLLDB_LOG_TYPES,
-                         "process_one_module rejecting framework path \"%s\" "
-                         "as it has no Headers or Modules subdirectories.",
-                         framework_path.c_str());
+              LOG_PRINTF(
+                  LIBLLDB_LOG_TYPES,
+                  "process_one_module(\"%s\") rejecting framework path \"%s\" "
+                  "as it has no \"Headers\" or \"Modules\" subdirectories.",
+                  module_file.GetFilename().AsCString(""),
+                  framework_path.c_str());
             }
 
             if (add_it) {
@@ -2187,6 +2198,11 @@ lldb::TypeSystemSP SwiftASTContext::CreateInstance(lldb::LanguageType language,
                 // SDK instead.
                 if (!StringRef(parent_path).startswith("/System/Library") &&
                     !IsDeviceSupport(parent_path.c_str()))
+                  LOG_PRINTF(LIBLLDB_LOG_TYPES,
+                             "process_one_module(\"%s\") adding framework path "
+                             "\"%s\".",
+                             module_file.GetFilename().AsCString(""),
+                             framework_path.c_str());
                   framework_search_paths.push_back(
                       {std::move(parent_path), /*system*/ false});
               }
@@ -2223,7 +2239,13 @@ lldb::TypeSystemSP SwiftASTContext::CreateInstance(lldb::LanguageType language,
                                        opts.ImportSearchPaths.end());
             for (const auto &fwsp : opts.FrameworkSearchPaths)
               framework_search_paths.push_back({fwsp.Path, fwsp.IsSystem});
-
+            if (lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_TARGET))
+              for (const std::string &arg : ast_context->GetClangArguments()) {
+                LOG_PRINTF(
+                    LIBLLDB_LOG_TYPES,
+                    "process_one_module(\"%s\") adding Clang argument \"%s\".",
+                    module_file.GetFilename().AsCString(""), arg.c_str());
+              }
             swift_ast_sp->AddExtraClangArgs(ast_context->GetClangArguments());
           }
         }

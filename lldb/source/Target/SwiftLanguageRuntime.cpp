@@ -2114,22 +2114,23 @@ struct AsyncUnwindRegisterNumbers {
 static llvm::Optional<AsyncUnwindRegisterNumbers>
 GetAsyncUnwindRegisterNumbers(llvm::Triple::ArchType triple) {
   switch (triple) {
-  case llvm::Triple::x86_64:
-    return (AsyncUnwindRegisterNumbers){
-        .async_ctx_regnum = dwarf_r14_x86_64,
-        .fp_regnum = dwarf_rbp_x86_64,
-        .pc_regnum = dwarf_rip_x86_64,
-        .dummy_regnum = dwarf_r15_x86_64,
-    };
-  case llvm::Triple::aarch64:
-    return (AsyncUnwindRegisterNumbers){
-        .async_ctx_regnum = arm64_dwarf::x22,
-        .fp_regnum = arm64_dwarf::fp,
-        .pc_regnum = arm64_dwarf::pc,
-        .dummy_regnum = arm64_dwarf::x23,
-    };
+  case llvm::Triple::x86_64: {
+    AsyncUnwindRegisterNumbers regnums;
+    regnums.async_ctx_regnum = dwarf_r14_x86_64;
+    regnums.fp_regnum = dwarf_rbp_x86_64;
+    regnums.pc_regnum = dwarf_rip_x86_64;
+    regnums.dummy_regnum = dwarf_r15_x86_64;
+    return regnums;
+  }
+  case llvm::Triple::aarch64: {
+    AsyncUnwindRegisterNumbers regnums;
+    regnums.async_ctx_regnum = arm64_dwarf::x22;
+    regnums.fp_regnum = arm64_dwarf::fp;
+    regnums.pc_regnum = arm64_dwarf::pc;
+    regnums.dummy_regnum = arm64_dwarf::x23;
+    return regnums;
+  }
   default:
-    assert(false && "swift async supports only x86_64 and arm64");
     return {};
   }
 }
@@ -2145,6 +2146,7 @@ lldb::addr_t SwiftLanguageRuntime::GetAsyncContext(RegisterContext *regctx) {
     return regctx->ReadRegisterAsUnsigned(reg, LLDB_INVALID_ADDRESS);
   }
 
+  assert(false && "swift async supports only x86_64 and arm64");
   return LLDB_INVALID_ADDRESS;
 }
 

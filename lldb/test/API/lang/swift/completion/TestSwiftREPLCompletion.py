@@ -13,6 +13,7 @@ class SwiftCompletionTest(PExpectTest):
     @skipIfAsan
     @skipUnlessDarwin
     @swiftTest
+    @skipIf(bugnumber="rdar://76540680")
     def test_basic_completion(self):
 
         self.launch(extra_args=["--repl"], executable=None, dimensions=(100,500))
@@ -43,6 +44,7 @@ class SwiftCompletionTest(PExpectTest):
     @skipIfAsan
     @skipIf(oslist=['windows'])
     @swiftTest
+    @skipIf(bugnumber="rdar://76540680")
     def test_lldb_command_completion(self):
 
         self.launch(extra_args=["--repl"], executable=None, dimensions=(100,500))

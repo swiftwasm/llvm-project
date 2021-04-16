@@ -21,6 +21,7 @@ class BitfieldsTestCase(TestBase):
     # BitFields exhibit crashes in record layout on Windows
     # (http://llvm.org/pr21800)
     @skipIfWindows
+    @expectedFailureAll(oslist=["linux"], bugnumber="rdar://76593082")
     def test_and_run_command(self):
         """Test 'frame variable ...' on a variable with bitfields."""
         self.build()

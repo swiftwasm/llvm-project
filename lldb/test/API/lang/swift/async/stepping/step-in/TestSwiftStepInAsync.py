@@ -9,7 +9,8 @@ class TestCase(lldbtest.TestBase):
     mydir = lldbtest.TestBase.compute_mydir(__file__)
 
     @swiftTest
-    @skipIf(oslist=['windows', 'linux'])
+    # @skipIf(oslist=['windows', 'linux'])
+    @skipIf(bugnumber="rdar://76833116")
     def test(self):
         """Test step-in to async functions"""
         self.build()

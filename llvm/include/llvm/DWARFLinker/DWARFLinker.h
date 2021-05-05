@@ -279,6 +279,11 @@ public:
   /// update existing DWARF info(for the linked binary).
   void setUpdate(bool Update) { Options.Update = Update; }
 
+  /// Set whether to keep the enclosing function for a static variable.
+  void setKeepFunctionForStatic(bool KeepFunctionForStatic) {
+    Options.KeepFunctionForStatic = KeepFunctionForStatic;
+  }
+
   /// Use specified number of threads for parallel files linking.
   void setNumThreads(unsigned NumThreads) { Options.Threads = NumThreads; }
 
@@ -778,6 +783,10 @@ private:
 
     /// Update
     bool Update = false;
+
+    /// Whether we want a static variable to force us to keep its enclosing
+    /// function.
+    bool KeepFunctionForStatic = false;
 
     /// Number of threads.
     unsigned Threads = 1;

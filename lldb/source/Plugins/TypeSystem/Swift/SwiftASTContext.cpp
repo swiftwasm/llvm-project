@@ -113,7 +113,6 @@
 #include "lldb/Symbol/VariableList.h"
 #include "lldb/Target/Platform.h"
 #include "lldb/Target/Process.h"
-#include "lldb/Target/SwiftLanguageRuntime.h"
 #include "lldb/Target/Target.h"
 #include "lldb/Utility/ArchSpec.h"
 #include "lldb/Utility/FileSpec.h"
@@ -125,6 +124,7 @@
 #include "lldb/Utility/ReproducerProvider.h"
 #include "llvm/ADT/ScopeExit.h"
 
+#include "Plugins/LanguageRuntime/Swift/SwiftLanguageRuntime.h"
 #include "Plugins/Platform/MacOSX/PlatformDarwin.h"
 #include "Plugins/SymbolFile/DWARF/DWARFASTParserClang.h"
 #include "Plugins/SymbolFile/DWARF/DWARFASTParserSwift.h"
@@ -5897,10 +5897,6 @@ SwiftASTContext::GetMemberFunctionAtIndex(opaque_compiler_type_t type,
 
 CompilerType
 SwiftASTContext::GetLValueReferenceType(opaque_compiler_type_t type) {
-  VALID_OR_RETURN(CompilerType());
-
-  if (type)
-    return ToCompilerType({swift::LValueType::get(GetSwiftType(type))});
   return {};
 }
 

@@ -54,8 +54,7 @@
 #include "llvm/Support/PrettyStackTrace.h"
 
 // BEGIN SWIFT
-#include "lldb/Target/LanguageRuntime.h"
-#include "lldb/Target/SwiftLanguageRuntime.h"
+#include "Plugins/LanguageRuntime/Swift/SwiftLanguageRuntime.h"
 // END SWIFT
 
 using namespace lldb;
@@ -1220,7 +1219,7 @@ lldb::SBStructuredData SBFrame::GetLanguageSpecificData() const {
       if (auto *data = runtime->GetLanguageSpecificData(*frame))
         return {data};
 
-  return nullptr;
+  return {};
 }
 
 // BEGIN SWIFT

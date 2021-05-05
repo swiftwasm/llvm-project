@@ -13,11 +13,11 @@
 #include "Plugins/TypeSystem/Swift/TypeSystemSwiftTypeRef.h"
 #include "Plugins/TypeSystem/Swift/SwiftASTContext.h"
 
+#include "Plugins/LanguageRuntime/Swift/SwiftLanguageRuntime.h"
 #include "lldb/Core/DumpDataExtractor.h"
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/TypeList.h"
 #include "lldb/Symbol/TypeMap.h"
-#include "lldb/Target/SwiftLanguageRuntime.h"
 #include "lldb/Utility/Log.h"
 
 #include "Plugins/ExpressionParser/Clang/ClangExternalASTSourceCallbacks.h"
@@ -2616,8 +2616,37 @@ size_t TypeSystemSwiftTypeRef::GetIndexOfChildMemberWithName(
 
 size_t
 TypeSystemSwiftTypeRef::GetNumTemplateArguments(opaque_compiler_type_t type) {
-  return m_swift_ast_context->GetNumTemplateArguments(ReconstructType(type));
+  auto impl = [&]() -> size_t {
+    using namespace swift::Demangle;
+    Demangler dem;
+    NodePointer node = DemangleCanonicalType(dem, type);
+
+    if (!node)
+      return 0;
+
+    switch (node->getKind()) {
+    case Node::Kind::BoundGenericClass:
+    case Node::Kind::BoundGenericEnum:
+    case Node::Kind::BoundGenericStructure:
+    case Node::Kind::BoundGenericProtocol:
+    case Node::Kind::BoundGenericOtherNominalType:
+    case Node::Kind::BoundGenericTypeAlias:
+    case Node::Kind::BoundGenericFunction: {
+      if (node->getNumChildren() > 1) {
+        NodePointer child = node->getChild(1);
+        if (child && child->getKind() == Node::Kind::TypeList)
+          return child->getNumChildren();
+      }
+    } break;
+    default:
+      break;
+    }
+    return 0;
+  };
+  VALIDATE_AND_RETURN(impl, GetNumTemplateArguments, type,
+                      (ReconstructType(type)), (ReconstructType(type)));
 }
+
 CompilerType
 TypeSystemSwiftTypeRef::GetTypeForFormatters(opaque_compiler_type_t type) {
   return m_swift_ast_context->GetTypeForFormatters(ReconstructType(type));
@@ -3101,11 +3130,17 @@ TypeSystemSwiftTypeRef::GetNonReferenceType(opaque_compiler_type_t type) {
 }
 CompilerType
 TypeSystemSwiftTypeRef::GetLValueReferenceType(opaque_compiler_type_t type) {
-  return m_swift_ast_context->GetLValueReferenceType(ReconstructType(type));
+    auto impl = []() { return CompilerType(); };
+
+  VALIDATE_AND_RETURN(impl, GetLValueReferenceType, type,
+                      (ReconstructType(type)), (ReconstructType(type)));
 }
 CompilerType
 TypeSystemSwiftTypeRef::GetRValueReferenceType(opaque_compiler_type_t type) {
-  return m_swift_ast_context->GetRValueReferenceType(ReconstructType(type));
+  auto impl = []() { return CompilerType(); };
+
+  VALIDATE_AND_RETURN(impl, GetRValueReferenceType, type,
+                      (ReconstructType(type)), (ReconstructType(type)));
 }
 uint32_t
 TypeSystemSwiftTypeRef::GetNumDirectBaseClasses(opaque_compiler_type_t type) {

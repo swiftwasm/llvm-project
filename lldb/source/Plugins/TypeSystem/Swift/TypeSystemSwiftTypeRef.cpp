@@ -2218,7 +2218,6 @@ lldb::Encoding TypeSystemSwiftTypeRef::GetEncoding(opaque_compiler_type_t type,
         return lldb::eEncodingInvalid;
       }
 
-      assert(false && "Unhandled builtin");
       count = 0;
       return lldb::eEncodingInvalid;
     }
@@ -2244,7 +2243,6 @@ lldb::Encoding TypeSystemSwiftTypeRef::GetEncoding(opaque_compiler_type_t type,
       return referent_type.GetEncoding(count);
     }
     default:
-      assert(false && "Unhandled node kind");
       LLDB_LOGF(GetLogIfAllCategoriesSet(LIBLLDB_LOG_TYPES),
                 "GetEncoding: Unhandled node kind for type %s",
                 AsMangledName(type));
@@ -2985,7 +2983,6 @@ bool TypeSystemSwiftTypeRef::DumpTypeValue(
           bitfield_bit_size, bitfield_bit_offset, exe_scope, is_base_class);
     }
     default:
-      assert(false && "Unhandled node kind");
       LLDB_LOGF(GetLogIfAllCategoriesSet(LIBLLDB_LOG_TYPES),
                 "DumpTypeValue: Unhandled node kind for type %s",
                 AsMangledName(type));

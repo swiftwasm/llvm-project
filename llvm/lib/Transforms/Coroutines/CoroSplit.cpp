@@ -26,6 +26,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Analysis/CFG.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/CallGraphSCCPass.h"
 #include "llvm/Analysis/LazyCallGraph.h"
@@ -37,6 +38,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -659,8 +661,10 @@ static void salvageCoroDebugInfo(llvm::Function &NewF) {
 
   // Remove all salvaged dbg.declare intrinsics that became
   // either unreachable or stale due to the CoroSplit transformation.
+  DominatorTree DomTree(NewF);
+  SmallDenseMap<BasicBlock *, bool, 8> UnreachableCache;
   auto IsUnreachableBlock = [&](BasicBlock *BB) {
-    return BB->hasNPredecessors(0) && BB != &NewF.getEntryBlock();
+    return !isPotentiallyReachable(&NewF.getEntryBlock(), BB, &DomTree);
   };
   for (DbgDeclareInst *DDI : Worklist) {
     if (IsUnreachableBlock(DDI->getParent()))

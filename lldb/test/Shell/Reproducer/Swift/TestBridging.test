@@ -1,6 +1,9 @@
 # UNSUPPORTED: system-windows, system-freebsd, system-linux
 # REQUIRES: swift
 
+# Failing non-deterministically in CI.
+# REQUIRES: rdar78319322
+
 # This tests replaying a Swift reproducer with bridging.
 
 # Start clean.

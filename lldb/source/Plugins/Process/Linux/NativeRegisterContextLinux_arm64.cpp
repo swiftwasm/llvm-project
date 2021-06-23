@@ -62,8 +62,9 @@ NativeRegisterContextLinux_arm64::NativeRegisterContextLinux_arm64(
   ::memset(&m_gpr_arm64, 0, sizeof(m_gpr_arm64));
   ::memset(&m_hwp_regs, 0, sizeof(m_hwp_regs));
   ::memset(&m_hbr_regs, 0, sizeof(m_hbr_regs));
+#if LLDB_HAVE_USER_SVE_HEADER
   ::memset(&m_sve_header, 0, sizeof(m_sve_header));
-
+#endif
   // 16 is just a maximum value, query hardware for actual watchpoint count
   m_max_hwp_supported = 16;
   m_max_hbp_supported = 16;
@@ -72,6 +73,7 @@ NativeRegisterContextLinux_arm64::NativeRegisterContextLinux_arm64(
 
   m_gpr_is_valid = false;
   m_fpu_is_valid = false;
+
   m_sve_buffer_is_valid = false;
   m_sve_header_is_valid = false;
 
@@ -119,8 +121,10 @@ NativeRegisterContextLinux_arm64::ReadRegister(const RegisterInfo *reg_info,
 
   uint8_t *src;
   uint32_t offset = LLDB_INVALID_INDEX32;
+#if LLDB_HAVE_USER_SVE_HEADER
   uint64_t sve_vg;
   std::vector<uint8_t> sve_reg_non_live;
+#endif
 
   if (IsGPR(reg)) {
     error = ReadGPR();
@@ -142,6 +146,7 @@ NativeRegisterContextLinux_arm64::ReadRegister(const RegisterInfo *reg_info,
       assert(offset < GetFPRSize());
       src = (uint8_t *)GetFPRBuffer() + offset;
     } else {
+#if LLDB_HAVE_USER_SVE_HEADER
       // SVE enabled, we will read and cache SVE ptrace data
       error = ReadAllSVE();
       if (error.Fail())
@@ -174,9 +179,13 @@ NativeRegisterContextLinux_arm64::ReadRegister(const RegisterInfo *reg_info,
 
       assert(offset < GetSVEBufferSize());
       src = (uint8_t *)GetSVEBuffer() + offset;
+#else
+      return Status("SVE not supported");
+#endif
     }
   } else if (IsSVE(reg)) {
 
+#if LLDB_HAVE_USER_SVE_HEADER
     if (m_sve_state == SVEState::Disabled || m_sve_state == SVEState::Unknown)
       return Status("SVE disabled or not supported");
 
@@ -208,10 +217,12 @@ NativeRegisterContextLinux_arm64::ReadRegister(const RegisterInfo *reg_info,
         src = (uint8_t *)GetSVEBuffer() + offset;
       }
     }
+#else
+      return Status("SVE not supported");
+#endif
   } else
     return Status("failed - register wasn't recognized to be a GPR or an FPR, "
                   "write strategy unknown");
-
   reg_value.SetFromMemoryData(reg_info, src, reg_info->byte_size,
                               eByteOrderLittle, error);
 
@@ -260,6 +271,7 @@ Status NativeRegisterContextLinux_arm64::WriteRegister(
 
       return WriteFPR();
     } else {
+#if LLDB_HAVE_USER_SVE_HEADER
       // SVE enabled, we will read and cache SVE ptrace data
       error = ReadAllSVE();
       if (error.Fail())
@@ -294,8 +306,12 @@ Status NativeRegisterContextLinux_arm64::WriteRegister(
       dst = (uint8_t *)GetSVEBuffer() + offset;
       ::memcpy(dst, reg_value.GetBytes(), reg_info->byte_size);
       return WriteAllSVE();
+#else
+      return Status("SVE not supported");
+#endif
     }
   } else if (IsSVE(reg)) {
+#if LLDB_HAVE_USER_SVE_HEADER
     if (m_sve_state == SVEState::Disabled || m_sve_state == SVEState::Unknown)
       return Status("SVE disabled or not supported");
     else {
@@ -349,8 +365,10 @@ Status NativeRegisterContextLinux_arm64::WriteRegister(
         return WriteAllSVE();
       }
     }
+#else
+    return Status("SVE not supported");
+#endif
   }
-
   return Status("Failed to write register value");
 }
 
@@ -997,11 +1015,11 @@ void NativeRegisterContextLinux_arm64::InvalidateAllRegisters() {
   m_fpu_is_valid = false;
   m_sve_buffer_is_valid = false;
   m_sve_header_is_valid = false;
-
   // Update SVE registers in case there is change in configuration.
   ConfigureRegisterContext();
 }
 
+#if LLDB_HAVE_USER_SVE_HEADER
 Status NativeRegisterContextLinux_arm64::ReadSVEHeader() {
   Status error;
 
@@ -1073,8 +1091,9 @@ Status NativeRegisterContextLinux_arm64::WriteAllSVE() {
 
   return WriteRegisterSet(&ioVec, GetSVEBufferSize(), NT_ARM_SVE);
 }
-
+#endif
 void NativeRegisterContextLinux_arm64::ConfigureRegisterContext() {
+#if LLDB_HAVE_USER_SVE_HEADER
   // Read SVE configuration data and configure register infos.
   if (!m_sve_header_is_valid && m_sve_state != SVEState::Disabled) {
     Status error = ReadSVEHeader();
@@ -1095,6 +1114,7 @@ void NativeRegisterContextLinux_arm64::ConfigureRegisterContext() {
       m_sve_ptrace_payload.resize(SVE_PT_SIZE(vq, SVE_PT_REGS_SVE));
     }
   }
+#endif
 }
 
 uint32_t NativeRegisterContextLinux_arm64::CalculateFprOffset(
@@ -1102,6 +1122,7 @@ uint32_t NativeRegisterContextLinux_arm64::CalculateFprOffset(
   return reg_info->byte_offset - GetGPRSize();
 }
 
+#if LLDB_HAVE_USER_SVE_HEADER
 uint32_t NativeRegisterContextLinux_arm64::CalculateSVEOffset(
     const RegisterInfo *reg_info) const {
   // Start of Z0 data is after GPRs plus 8 bytes of vg register
@@ -1124,6 +1145,7 @@ void *NativeRegisterContextLinux_arm64::GetSVEBuffer() {
 
   return m_sve_ptrace_payload.data();
 }
+#endif
 
 std::vector<uint32_t> NativeRegisterContextLinux_arm64::GetExpeditedRegisters(
     ExpeditedRegs expType) const {

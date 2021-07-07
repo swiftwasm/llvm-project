@@ -54,6 +54,7 @@
 #include "swift/SIL/SILModule.h"
 #include "swift/Sema/IDETypeChecking.h"
 #include "swift/Serialization/Validation.h"
+#include "swift/SymbolGraphGen/SymbolGraphOptions.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/Basic/SourceManager.h"
@@ -2524,6 +2525,10 @@ swift::TypeCheckerOptions &SwiftASTContext::GetTypeCheckerOptions() {
   return GetCompilerInvocation().getTypeCheckerOptions();
 }
 
+swift::symbolgraphgen::SymbolGraphOptions &SwiftASTContext::GetSymbolGraphOptions() {
+  return GetCompilerInvocation().getSymbolGraphOptions();
+}
+
 swift::DiagnosticEngine &SwiftASTContext::GetDiagnosticEngine() {
   if (!m_diagnostic_engine_ap) {
     m_diagnostic_engine_ap.reset(
@@ -3310,7 +3315,7 @@ swift::ASTContext *SwiftASTContext::GetASTContext() {
   LLDB_SCOPED_TIMER();
   m_ast_context_ap.reset(swift::ASTContext::get(
       GetLanguageOptions(), GetTypeCheckerOptions(), GetSearchPathOptions(),
-      GetClangImporterOptions(),
+      GetClangImporterOptions(), GetSymbolGraphOptions(),
       GetSourceManager(), GetDiagnosticEngine()));
   m_diagnostic_consumer_ap.reset(new StoringDiagnosticConsumer(*this));
 

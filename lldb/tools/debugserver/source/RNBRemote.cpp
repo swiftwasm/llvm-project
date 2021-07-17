@@ -148,8 +148,6 @@ uint64_t decode_uint64(const char *p, int base, char **end = nullptr,
 extern void ASLLogCallback(void *baton, uint32_t flags, const char *format,
                            va_list args);
 
-#if defined(__APPLE__) &&                                                      \
-    (__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 101000)
 // from System.framework/Versions/B/PrivateHeaders/sys/codesign.h
 extern "C" {
 #define CS_OPS_STATUS 0       /* return status */
@@ -164,7 +162,6 @@ typedef uint32_t csr_config_t;
 #define CSR_ALLOW_TASK_FOR_PID (1 << 2)
 int csr_check(csr_config_t mask);
 }
-#endif
 
 RNBRemote::RNBRemote()
     : m_ctx(), m_comm(), m_arch(), m_continue_thread(-1), m_thread(-1),

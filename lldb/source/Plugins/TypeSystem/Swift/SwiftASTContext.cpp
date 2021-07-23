@@ -7601,7 +7601,7 @@ CompilerType SwiftASTContext::GetUnboundGenericType(opaque_compiler_type_t type,
     auto *nominal_type_decl = unbound_generic_type->getDecl();
     swift::GenericSignature generic_sig =
         nominal_type_decl->getGenericSignature();
-    auto depTy = generic_sig->getGenericParams()[idx];
+    auto depTy = generic_sig.getGenericParams()[idx];
     return ToCompilerType({nominal_type_decl->mapTypeIntoContext(depTy)
                                ->castTo<swift::ArchetypeType>()});
   }

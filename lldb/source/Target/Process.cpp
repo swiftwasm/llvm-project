@@ -665,10 +665,10 @@ void Process::Finalize() {
   case eStateStepping:
   case eStateCrashed:
   case eStateSuspended:
+  case eStateInvalid:
     DestroyImpl(false);
     break;
 
-  case eStateInvalid:
   case eStateUnloaded:
   case eStateDetached:
   case eStateExited:

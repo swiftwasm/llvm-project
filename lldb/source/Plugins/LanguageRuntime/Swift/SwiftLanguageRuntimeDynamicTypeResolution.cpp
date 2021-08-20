@@ -413,8 +413,15 @@ public:
     Target &target(m_process.GetTarget());
     Address addr(address.getAddressData());
     Status error;
-    if (size > target.ReadMemory(addr, dest, size, error)) {
-      LLDB_LOGV(log, "[MemoryReader] memory read returned fewer bytes than asked for");
+
+    // We disable reads from the file-cache since if the image we're reading
+    // from is part of the shared cache, offsets we read from the file-cache may
+    // be wrong.
+    if (size > target.ReadMemory(addr, dest, size, error,
+                                 true /* force_live_memory */)) {
+      LLDB_LOGV(
+          log,
+          "[MemoryReader] memory read returned fewer bytes than asked for");
       return false;
     }
     if (error.Fail()) {

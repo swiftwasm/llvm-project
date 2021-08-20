@@ -171,7 +171,6 @@ static const char *g_get_dynamic_class_info2_body = R"(
 
 extern "C" {
     int printf(const char * format, ...);
-    void free(void *ptr);
     Class* objc_copyRealizedClassList_nolock(unsigned int *outCount);
     const char* objc_debug_class_getNameRaw(Class cls);
 }
@@ -228,7 +227,6 @@ __lldb_apple_objc_v2_get_dynamic_class_info2(void *gdb_objc_realized_classes_ptr
         class_infos[idx].hash = 0;
     }
 
-    free(realized_class_list);
     return count;
 }
 )";

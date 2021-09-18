@@ -2533,7 +2533,7 @@ void DWARFASTParserClang::ParseSingleMember(
       if (accessibility == eAccessNone)
         accessibility = eAccessPublic;
       TypeSystemClang::AddVariableToRecordType(
-          class_clang_type, name, var_type->GetLayoutCompilerType(),
+          class_clang_type, name, var_type->GetForwardCompilerType(),
           accessibility);
     }
     return;
@@ -2666,7 +2666,7 @@ void DWARFASTParserClang::ParseSingleMember(
           last_field_info.bit_offset = field_bit_offset;
 
           if (llvm::Optional<uint64_t> clang_type_size =
-                  member_clang_type.GetByteSize(nullptr)) {
+                  member_type->GetByteSize(nullptr)) {
             last_field_info.bit_size = *clang_type_size * character_width;
           }
 

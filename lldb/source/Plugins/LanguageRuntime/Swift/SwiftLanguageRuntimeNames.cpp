@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "SwiftLanguageRuntimeImpl.h"
-#include "lldb/Target/SwiftLanguageRuntime.h"
+#include "SwiftLanguageRuntime.h"
 
 #include "lldb/Breakpoint/StoppointCallbackContext.h"
 #include "lldb/Symbol/Block.h"
@@ -60,12 +60,12 @@ enum class ThunkAction {
 static swift::Demangle::NodePointer
 childAtPath(swift::Demangle::NodePointer node,
             llvm::ArrayRef<swift::Demangle::Node::Kind> path) {
-  if (path.empty())
+  if (!node || path.empty())
     return node;
 
   auto current_step = path.front();
   for (auto *child : *node)
-    if (child->getKind() == current_step)
+    if (child && child->getKind() == current_step)
       return childAtPath(child, path.drop_front());
   return nullptr;
 }
@@ -596,6 +596,15 @@ static lldb::ThreadPlanSP GetStepThroughTrampolinePlan(Thread &thread,
   return new_thread_plan_sp;
 }
 
+bool SwiftLanguageRuntime::IsSymbolARuntimeThunk(const Symbol &symbol) {
+  llvm::StringRef symbol_name =
+      symbol.GetMangled().GetMangledName().GetStringRef();
+  if (symbol_name.empty())
+    return false;
+  swift::Demangle::Context demangle_ctx;
+  return demangle_ctx.isThunkSymbol(symbol_name);
+}
+
 bool SwiftLanguageRuntime::IsSwiftMangledName(llvm::StringRef name) {
   return swift::Demangle::isSwiftSymbol(name);
 }
@@ -673,6 +682,7 @@ SwiftLanguageRuntime::DemangleSymbolAsString(StringRef symbol, DemangleMode mode
     options.QualifyEntities = true;
     options.DisplayModuleNames = true;
     options.DisplayLocalNameContexts = false;
+    options.DisplayDebuggerGeneratedModule = false;
     break;    
   }
 

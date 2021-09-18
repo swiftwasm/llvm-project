@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "lldb/Target/SwiftLanguageRuntime.h"
+#include "SwiftLanguageRuntime.h"
 #include "SwiftLanguageRuntimeImpl.h"
 
 #include "Plugins/Process/Utility/RegisterContext_x86.h"
@@ -32,6 +32,7 @@
 #include "lldb/Target/RegisterContext.h"
 #include "lldb/Utility/Log.h"
 #include "lldb/Utility/OptionParsing.h"
+#include "lldb/Utility/Timer.h"
 
 #include "swift/AST/ASTMangler.h"
 #include "swift/AST/Decl.h"
@@ -53,6 +54,8 @@
 
 using namespace lldb;
 using namespace lldb_private;
+
+LLDB_PLUGIN_DEFINE(SwiftLanguageRuntime)
 
 namespace lldb_private {
 char SwiftLanguageRuntime::ID = 0;
@@ -416,6 +419,8 @@ SwiftLanguageRuntimeImpl::GetReflectionContext() {
 }
 
 void SwiftLanguageRuntimeImpl::SetupReflection() {
+  LLDB_SCOPED_TIMER();
+ 
   // SetupABIBit() iterates of the Target's images and thus needs to
   // acquire that ModuleList's lock. We need to acquire this before
   // locking m_add_module_mutex, since ModulesDidLoad can also be
@@ -2173,7 +2178,8 @@ UnwindPlanSP
 SwiftLanguageRuntime::GetRuntimeUnwindPlan(ProcessSP process_sp,
                                            RegisterContext *regctx,
                                            bool &behaves_like_zeroth_frame) {
-
+  LLDB_SCOPED_TIMER();
+ 
   Target &target(process_sp->GetTarget());
   auto arch = target.GetArchitecture();
   llvm::Optional<AsyncUnwindRegisterNumbers> regnums =
@@ -2201,25 +2207,26 @@ SwiftLanguageRuntime::GetRuntimeUnwindPlan(ProcessSP process_sp,
   Address pc;
   pc.SetLoadAddress(regctx->GetPC(), &target);
   SymbolContext sc;
-  if (pc.IsValid()) {
-    pc.CalculateSymbolContext(&sc,
-                              eSymbolContextFunction | eSymbolContextSymbol);
-    if (sc.function) {
-      Address func_start_addr = sc.function->GetAddressRange().GetBaseAddress();
-      AddressRange prologue_range(func_start_addr,
-                                  sc.function->GetPrologueByteSize());
-      if (prologue_range.ContainsLoadAddress(pc, &target) ||
-          func_start_addr == pc) {
-        return UnwindPlanSP();
-      }
-    } else if (sc.symbol) {
-      Address func_start_addr = sc.symbol->GetAddress();
-      AddressRange prologue_range(func_start_addr,
-                                  sc.symbol->GetPrologueByteSize());
-      if (prologue_range.ContainsLoadAddress(pc, &target) ||
-          func_start_addr == pc) {
-        return UnwindPlanSP();
-      }
+  if (pc.IsValid())
+    if (!pc.CalculateSymbolContext(&sc, eSymbolContextFunction |
+                                            eSymbolContextSymbol))
+      return UnwindPlanSP();
+
+  if (sc.function) {
+    Address func_start_addr = sc.function->GetAddressRange().GetBaseAddress();
+    AddressRange prologue_range(func_start_addr,
+                                sc.function->GetPrologueByteSize());
+    if (prologue_range.ContainsLoadAddress(pc, &target) ||
+        func_start_addr == pc) {
+      return UnwindPlanSP();
+    }
+  } else if (sc.symbol) {
+    Address func_start_addr = sc.symbol->GetAddress();
+    AddressRange prologue_range(func_start_addr,
+                                sc.symbol->GetPrologueByteSize());
+    if (prologue_range.ContainsLoadAddress(pc, &target) ||
+        func_start_addr == pc) {
+      return UnwindPlanSP();
     }
   }
 
@@ -2280,8 +2287,10 @@ SwiftLanguageRuntime::GetRuntimeUnwindPlan(ProcessSP process_sp,
   //    needs to be dereferenced to get the actual function's context.
   // The debug info for locals reflects this difference, so our unwinding of the
   // context register needs to reflect it too.
-  bool indirect_context = IsSwiftAsyncAwaitResumePartialFunctionSymbol(
-      sc.symbol->GetMangled().GetMangledName().GetStringRef());
+  bool indirect_context =
+      sc.symbol ? IsSwiftAsyncAwaitResumePartialFunctionSymbol(
+                      sc.symbol->GetMangled().GetMangledName().GetStringRef())
+                : false;
 
   if (indirect_context) {
     // In a "resume" coroutine, the passed context argument needs to be
@@ -2329,7 +2338,8 @@ SwiftLanguageRuntime::GetRuntimeUnwindPlan(ProcessSP process_sp,
 static UnwindPlanSP
 GetFollowAsyncContextUnwindPlan(RegisterContext *regctx, ArchSpec &arch,
                                 bool &behaves_like_zeroth_frame) {
-
+  LLDB_SCOPED_TIMER();
+ 
   UnwindPlan::RowSP row(new UnwindPlan::Row);
   const int32_t ptr_size = 8;
   row->SetOffset(0);

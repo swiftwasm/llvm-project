@@ -335,6 +335,16 @@ struct FrameDataInfo {
            "Cannot set the index for the same field twice.");
     FieldIndexMap[V] = Index;
   }
+  uint64_t getAlign(Value *V) const {
+    auto Iter = FieldAlignMap.find(V);
+    assert(Iter != FieldAlignMap.end());
+    return Iter->second;
+  }
+
+  void setAlign(Value *V, uint64_t Align) {
+    assert(FieldAlignMap.count(V) == 0);
+    FieldAlignMap.insert({V, Align});
+  }
 
   // Remap the index of every field in the frame, using the final layout index.
   void updateLayoutIndex(FrameTypeBuilder &B);
@@ -347,6 +357,9 @@ private:
   // with their original insertion field index. After the frame is built, their
   // indexes will be updated into the final layout index.
   DenseMap<Value *, uint32_t> FieldIndexMap;
+  // Map from values to their alignment on the frame. They would be set after
+  // the frame is built.
+  DenseMap<Value *, uint64_t> FieldAlignMap;
 };
 } // namespace
 
@@ -392,12 +405,15 @@ private:
   Align StructAlign;
   bool IsFinished = false;
 
+  Optional<Align> MaxFrameAlignment;
+
   SmallVector<Field, 8> Fields;
   DenseMap<Value*, unsigned> FieldIndexByKey;
 
 public:
-  FrameTypeBuilder(LLVMContext &Context, DataLayout const &DL)
-      : DL(DL), Context(Context) {}
+  FrameTypeBuilder(LLVMContext &Context, DataLayout const &DL,
+                   Optional<Align> MaxFrameAlignment)
+      : DL(DL), Context(Context), MaxFrameAlignment(MaxFrameAlignment) {}
 
   /// Add a field to this structure for the storage of an `alloca`
   /// instruction.
@@ -448,7 +464,8 @@ public:
 
   /// Add a field to this structure.
   LLVM_NODISCARD FieldIDType addField(Type *Ty, MaybeAlign FieldAlignment,
-                                      bool IsHeader = false) {
+                                      bool IsHeader = false,
+                                      bool IsSpillOfValue = false) {
     assert(!IsFinished && "adding fields to a finished builder");
     assert(Ty && "must provide a type for a field");
 
@@ -457,8 +474,16 @@ public:
 
     // The field alignment might not be the type alignment, but we need
     // to remember the type alignment anyway to build the type.
-    Align TyAlignment = DL.getABITypeAlign(Ty);
-    if (!FieldAlignment) FieldAlignment = TyAlignment;
+    // If we are spilling values we don't need to worry about ABI alignment
+    // concerns.
+    auto ABIAlign = DL.getABITypeAlign(Ty);
+    Align TyAlignment =
+        (IsSpillOfValue && MaxFrameAlignment)
+            ? (*MaxFrameAlignment < ABIAlign ? *MaxFrameAlignment : ABIAlign)
+            : ABIAlign;
+    if (!FieldAlignment) {
+      FieldAlignment = TyAlignment;
+    }
 
     // Lay out header fields immediately.
     uint64_t Offset;
@@ -492,12 +517,18 @@ public:
     assert(IsFinished && "not yet finished!");
     return Fields[Id].LayoutFieldIndex;
   }
+  Field getLayoutField(FieldIDType Id) const {
+    assert(IsFinished && "not yet finished!");
+    return Fields[Id];
+  }
 };
 } // namespace
 
 void FrameDataInfo::updateLayoutIndex(FrameTypeBuilder &B) {
   auto Updater = [&](Value *I) {
-    setFieldIndex(I, B.getLayoutFieldIndex(getFieldIndex(I)));
+    auto Field = B.getLayoutField(getFieldIndex(I));
+    setFieldIndex(I, Field.LayoutFieldIndex);
+    setAlign(I, Field.Alignment.value());
   };
   LayoutIndexUpdateStarted = true;
   for (auto &S : Spills)
@@ -722,7 +753,11 @@ static StructType *buildFrameType(Function &F, coro::Shape &Shape,
     return StructType::create(C, Name);
   }();
 
-  FrameTypeBuilder B(C, DL);
+  // We will use this value to cap the alignment of spilled values.
+  Optional<Align> MaxFrameAlignment;
+  if (Shape.ABI == coro::ABI::Async)
+    MaxFrameAlignment = Shape.AsyncLowering.getContextAlignment();
+  FrameTypeBuilder B(C, DL, MaxFrameAlignment);
 
   AllocaInst *PromiseAlloca = Shape.getPromiseAlloca();
   Optional<FieldIDType> SwitchIndexFieldId;
@@ -760,7 +795,8 @@ static StructType *buildFrameType(Function &F, coro::Shape &Shape,
   B.addFieldForAllocas(F, FrameData, Shape);
   // Create an entry for every spilled value.
   for (auto &S : FrameData.Spills) {
-    FieldIDType Id = B.addField(S.first->getType(), None);
+    FieldIDType Id = B.addField(S.first->getType(), None, false /*header*/,
+                                true /*IsSpillOfValue*/);
     FrameData.setFieldIndex(S.first, Id);
   }
 
@@ -1122,6 +1158,7 @@ static Instruction *insertSpills(const FrameDataInfo &FrameData,
 
   for (auto const &E : FrameData.Spills) {
     Value *Def = E.first;
+    auto SpillAlignment = Align(FrameData.getAlign(Def));
     // Create a store instruction storing the value into the
     // coroutine frame.
     Instruction *InsertPt = nullptr;
@@ -1169,7 +1206,7 @@ static Instruction *insertSpills(const FrameDataInfo &FrameData,
     Builder.SetInsertPoint(InsertPt);
     auto *G = Builder.CreateConstInBoundsGEP2_32(
         FrameTy, FramePtr, 0, Index, Def->getName() + Twine(".spill.addr"));
-    Builder.CreateStore(Def, G);
+    Builder.CreateAlignedStore(Def, G, SpillAlignment);
 
     BasicBlock *CurrentBlock = nullptr;
     Value *CurrentReload = nullptr;
@@ -1183,9 +1220,9 @@ static Instruction *insertSpills(const FrameDataInfo &FrameData,
 
         auto *GEP = GetFramePointer(E.first);
         GEP->setName(E.first->getName() + Twine(".reload.addr"));
-        CurrentReload = Builder.CreateLoad(
+        CurrentReload = Builder.CreateAlignedLoad(
             FrameTy->getElementType(FrameData.getFieldIndex(E.first)), GEP,
-            E.first->getName() + Twine(".reload"));
+            SpillAlignment, E.first->getName() + Twine(".reload"));
 
         TinyPtrVector<DbgDeclareInst *> DIs = FindDbgDeclareUses(Def);
         for (DbgDeclareInst *DDI : DIs) {

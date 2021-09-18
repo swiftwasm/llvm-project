@@ -26,6 +26,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Analysis/CFG.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/CallGraphSCCPass.h"
 #include "llvm/Analysis/LazyCallGraph.h"
@@ -37,6 +38,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Dominators.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/GlobalVariable.h"
@@ -659,8 +661,10 @@ static void salvageCoroDebugInfo(llvm::Function &NewF) {
 
   // Remove all salvaged dbg.declare intrinsics that became
   // either unreachable or stale due to the CoroSplit transformation.
+  DominatorTree DomTree(NewF);
+  SmallDenseMap<BasicBlock *, bool, 8> UnreachableCache;
   auto IsUnreachableBlock = [&](BasicBlock *BB) {
-    return BB->hasNPredecessors(0) && BB != &NewF.getEntryBlock();
+    return !isPotentiallyReachable(&NewF.getEntryBlock(), BB, &DomTree);
   };
   for (DbgDeclareInst *DDI : Worklist) {
     if (IsUnreachableBlock(DDI->getParent()))
@@ -863,14 +867,17 @@ void CoroCloner::create() {
   CloneFunctionInto(NewF, &OrigF, VMap, /*ModuleLevelChanges=*/true, Returns);
 
   // For async functions / continuations, adjust the scope line of the
-  // clone to the line number of the suspend point. The scope line is
+  // clone to the line number of the suspend point. However, only
+  // adjust the scope line when the files are the same. This ensures
+  // line number and file name belong together. The scope line is
   // associated with all pre-prologue instructions. This avoids a jump
   // in the linetable from the function declaration to the suspend point.
   if (DISubprogram *SP = NewF->getSubprogram()) {
     assert(SP != OrigF.getSubprogram() && SP->isDistinct());
     if (ActiveSuspend)
       if (auto DL = ActiveSuspend->getDebugLoc())
-        SP->setScopeLine(DL->getLine());
+        if (SP->getFile() == DL->getFile())
+          SP->setScopeLine(DL->getLine());
     // Update the linkage name to reflect the modified symbol name. It
     // is necessary to update the linkage name in Swift, since the
     // mangling changes for resume functions. It might also be the

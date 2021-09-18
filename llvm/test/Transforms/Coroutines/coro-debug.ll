@@ -20,6 +20,7 @@ entry:
   store i8* %2, i8** %coro_hdl, align 8, !dbg !16
   %3 = call i8 @llvm.coro.suspend(token none, i1 false), !dbg !17
   %conv = sext i8 %3 to i32, !dbg !17
+  %late_local = alloca i32, align 4
   call void @coro.devirt.trigger(i8* null)
   switch i32 %conv, label %sw.default [
     i32 0, label %sw.bb
@@ -57,6 +58,7 @@ coro_Cleanup:                                     ; preds = %sw.epilog, %sw.bb1
 coro_Suspend:                                     ; preds = %coro_Cleanup, %sw.default
   %7 = call i1 @llvm.coro.end(i8* null, i1 false) #7, !dbg !24
   %8 = load i8*, i8** %coro_hdl, align 8, !dbg !24
+  store i32 0, i32* %late_local, !dbg !24
   ret i8* %8, !dbg !24
 }
 
@@ -147,6 +149,8 @@ attributes #7 = { noduplicate }
 ; CHECK: store %f.Frame* {{.*}}, %f.Frame** %[[DBG_PTR]]
 ; CHECK-NOT: alloca %struct.test*
 ; CHECK: call void @llvm.dbg.declare(metadata i32 0, metadata ![[RESUME_CONST:[0-9]+]], metadata !DIExpression())
+; Note that keeping the undef value here could be acceptable, too.
+; CHECK-NOT: call void @llvm.dbg.declare(metadata i32* undef, metadata !{{[0-9]+}}, metadata !DIExpression())
 ; CHECK: call void @coro.devirt.trigger(i8* null)
 ; CHECK: define internal fastcc void @f.destroy(%f.Frame* noalias nonnull align 8 dereferenceable(32) %FramePtr) #0 !dbg ![[DESTROY:[0-9]+]]
 ; CHECK: define internal fastcc void @f.cleanup(%f.Frame* noalias nonnull align 8 dereferenceable(32) %FramePtr) #0 !dbg ![[CLEANUP:[0-9]+]]

@@ -11,15 +11,16 @@
 //===----------------------------------------------------------------------===//
 
 #include "SwiftLanguageRuntimeImpl.h"
-#include "lldb/Target/SwiftLanguageRuntime.h"
+#include "SwiftLanguageRuntime.h"
 
-#include "Plugins/TypeSystem/Clang/TypeSystemClang.h"
 #include "Plugins/ExpressionParser/Clang/ClangUtil.h"
+#include "Plugins/TypeSystem/Clang/TypeSystemClang.h"
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/Variable.h"
 #include "lldb/Symbol/VariableList.h"
 #include "lldb/Target/ProcessStructReader.h"
 #include "lldb/Target/Target.h"
+#include "lldb/Utility/Timer.h"
 #include "swift/AST/Types.h"
 
 #include "swift/AST/ASTContext.h"
@@ -355,8 +356,7 @@ public:
     if (sc_list.GetSize() == 1 && sc_list.GetContextAtIndex(0, sym_ctx)) {
       if (sym_ctx.symbol) {
         auto load_addr = sym_ctx.symbol->GetLoadAddress(&m_process.GetTarget());
-        LLDB_LOGV(log, "[MemoryReader] symbol resolved to 0x%" PRIx64,
-                  load_addr);
+        LLDB_LOGV(log, "[MemoryReader] symbol resolved to {0:x}", load_addr);
         return swift::remote::RemoteAddress(load_addr);
       }
     }
@@ -402,9 +402,7 @@ public:
 
     Log *log(GetLogIfAllCategoriesSet(LIBLLDB_LOG_TYPES));
 
-    LLDB_LOGV(log,
-              "[MemoryReader] asked to read %" PRIu64
-              " bytes at address 0x%" PRIx64,
+    LLDB_LOGV(log, "[MemoryReader] asked to read {0} bytes at address {1:x}",
               size, address.getAddressData());
 
     if (size > m_max_read_amount) {
@@ -415,12 +413,20 @@ public:
     Target &target(m_process.GetTarget());
     Address addr(address.getAddressData());
     Status error;
-    if (size > target.ReadMemory(addr, dest, size, error, true)) {
-      LLDB_LOGV(log, "[MemoryReader] memory read returned fewer bytes than asked for");
+
+    // We disable reads from the file-cache since if the image we're reading
+    // from is part of the shared cache, offsets we read from the file-cache may
+    // be wrong.
+    if (size > target.ReadMemory(addr, dest, size, error,
+                                 true /* force_live_memory */)) {
+      LLDB_LOGV(
+          log,
+          "[MemoryReader] memory read returned fewer bytes than asked for");
       return false;
     }
     if (error.Fail()) {
-      LLDB_LOGV(log, "[MemoryReader] memory read returned error: %s", error.AsCString());
+      LLDB_LOGV(log, "[MemoryReader] memory read returned error: {0}",
+                error.AsCString());
       return false;
     }
 
@@ -432,7 +438,7 @@ public:
       }
       return stream.GetData();
     };
-    LLDB_LOGV(log, "[MemoryReader] memory read returned data: %s",
+    LLDB_LOGV(log, "[MemoryReader] memory read returned data: {0}",
               format_data(dest, size));
 
     return true;
@@ -442,8 +448,7 @@ public:
                   std::string &dest) override {
     Log *log(GetLogIfAllCategoriesSet(LIBLLDB_LOG_TYPES));
 
-    LLDB_LOGV(log,
-              "[MemoryReader] asked to read string data at address 0x%" PRIx64,
+    LLDB_LOGV(log, "[MemoryReader] asked to read string data at address {0x}",
               address.getAddressData());
 
     Target &target(m_process.GetTarget());
@@ -463,11 +468,11 @@ public:
         }
         return stream.GetData();
       };
-      LLDB_LOGV(log, "[MemoryReader] memory read returned data: \"%s\"",
+      LLDB_LOGV(log, "[MemoryReader] memory read returned data: \"{0}\"",
                 format_string(dest));
       return true;
     } else {
-      LLDB_LOGV(log, "[MemoryReader] memory read returned error: %s",
+      LLDB_LOGV(log, "[MemoryReader] memory read returned error: {0}",
                 error.AsCString());
       return false;
     }
@@ -938,6 +943,7 @@ llvm::Optional<uint64_t> SwiftLanguageRuntimeImpl::GetMemberVariableOffsetRemote
 llvm::Optional<uint64_t> SwiftLanguageRuntimeImpl::GetMemberVariableOffset(
     CompilerType instance_type, ValueObject *instance,
     llvm::StringRef member_name, Status *error) {
+  LLDB_SCOPED_TIMER();
   llvm::Optional<uint64_t> offset;
 
   if (!instance_type.IsValid())
@@ -1031,7 +1037,8 @@ static CompilerType GetWeakReferent(TypeSystemSwiftTypeRef &ts,
 llvm::Optional<unsigned>
 SwiftLanguageRuntimeImpl::GetNumChildren(CompilerType type,
                                          ValueObject *valobj) {
-  auto *ts = llvm::dyn_cast_or_null<TypeSystemSwiftTypeRef>(
+  LLDB_SCOPED_TIMER();
+   auto *ts = llvm::dyn_cast_or_null<TypeSystemSwiftTypeRef>(
       type.GetTypeSystem());
   if (!ts)
     return {};
@@ -1273,6 +1280,7 @@ llvm::Optional<std::string> SwiftLanguageRuntimeImpl::GetEnumCaseName(
 llvm::Optional<size_t> SwiftLanguageRuntimeImpl::GetIndexOfChildMemberWithName(
     CompilerType type, llvm::StringRef name, ExecutionContext *exe_ctx,
     bool omit_empty_base_classes, std::vector<uint32_t> &child_indexes) {
+  LLDB_SCOPED_TIMER();
   auto *ts =
       llvm::dyn_cast_or_null<TypeSystemSwiftTypeRef>(type.GetTypeSystem());
   if (!ts)
@@ -1804,18 +1812,128 @@ bool SwiftLanguageRuntimeImpl::IsValidErrorValue(ValueObject &in_value) {
 
   return true;
 }
+/// Digs into the protocols inside a protocol composition and checks if 
+/// any of them belong to the LLDB module.
+static bool
+IsDeclaredInLLDBExpr(const swift::reflection::TypeRef *typeref) {
+  using swift::Demangle::Node;
+
+  const auto *protocol_typeref = llvm::dyn_cast_or_null<
+      const swift::reflection::ProtocolCompositionTypeRef>(typeref);
+
+  if (!protocol_typeref)
+    return false;
+
+  swift::Demangle::Demangler dem;
+
+  NodePointer type = protocol_typeref->getDemangling(dem);
+  if (!type || type->getKind() != Node::Kind::Type ||
+      type->getNumChildren() == 0)
+    return false;
+
+  NodePointer maybe_protocol_list = type->getFirstChild();
+  NodePointer protocol_list;
+
+  if (!maybe_protocol_list)
+    return false;
+
+  switch (maybe_protocol_list->getKind()) {
+  case Node::Kind::ProtocolList:
+    protocol_list = maybe_protocol_list;
+    break;
+  case Node::Kind::ProtocolListWithAnyObject:
+  case Node::Kind::ProtocolListWithClass:
+    if (maybe_protocol_list->getNumChildren() == 0)
+      return false;
+    protocol_list = maybe_protocol_list->getFirstChild();
+    break;
+  default:
+    return false;
+  }
+
+  if (!protocol_list || protocol_list->getKind() != Node::Kind::ProtocolList ||
+      protocol_list->getNumChildren() == 0)
+    return false;
+
+  NodePointer type_list = protocol_list->getFirstChild();
+  if (!type_list || type_list->getKind() != Node::Kind::TypeList)
+    return false;
+
+  for (NodePointer internal_type : *type_list) {
+    if (!internal_type || internal_type->getKind() != Node::Kind::Type ||
+        internal_type->getNumChildren() == 0)
+      continue;
+
+    NodePointer protocol = internal_type->getFirstChild();
+    if (!protocol || protocol->getKind() != Node::Kind::Protocol ||
+        protocol->getNumChildren() == 0)
+      continue;
+
+    NodePointer module = protocol->getFirstChild();
+    if (!module || module->getKind() != Node::Kind::Module ||
+        !module->hasText())
+      continue;
+
+    if (module->getText().startswith("__lldb_expr_"))
+      return true;
+  }
+  return false;
+}
 
 bool SwiftLanguageRuntimeImpl::GetDynamicTypeAndAddress_Protocol(
     ValueObject &in_value, CompilerType protocol_type,
     SwiftASTContextForExpressions &scratch_ctx,
     lldb::DynamicValueType use_dynamic, TypeAndOrName &class_type_or_name,
     Address &address) {
+  auto remote_ast_impl = [&](bool use_local_buffer,
+                             lldb::addr_t existential_address)
+      -> llvm::Optional<std::pair<CompilerType, Address>> {
+    swift::remote::RemoteAddress remote_existential(existential_address);
+    auto &remote_ast = GetRemoteASTContext(scratch_ctx);
+    auto swift_type = GetSwiftType(protocol_type);
+    if (!swift_type)
+      return {};
+    if (use_local_buffer)
+      PushLocalBuffer(existential_address,
+                      in_value.GetByteSize().getValueOr(0));
+
+    auto result = remote_ast.getDynamicTypeAndAddressForExistential(
+        remote_existential, swift_type);
+    if (use_local_buffer)
+      PopLocalBuffer();
+
+    if (!result.isSuccess())
+      return {};
+
+    auto type_and_address = result.getValue();
+
+    CompilerType type = ToCompilerType(type_and_address.InstanceType);
+    Address address;
+    address.SetRawAddress(type_and_address.PayloadAddress.getAddressData());
+    return {{type, address}};
+  };
+
   Log *log(GetLogIfAllCategoriesSet(LIBLLDB_LOG_TYPES));
 
   auto &target = m_process.GetTarget();
   assert(IsScratchContextLocked(target) &&
          "Swift scratch context not locked ahead");
-  auto &remote_ast = GetRemoteASTContext(scratch_ctx);
+
+  auto *tss =
+      llvm::dyn_cast_or_null<TypeSystemSwift>(protocol_type.GetTypeSystem());
+  if (!tss) {
+    if (log)
+      log->Printf("Could not get type system swift");
+    return false;
+  }
+
+  const swift::reflection::TypeRef *protocol_typeref =
+      GetTypeRef(protocol_type, tss->GetSwiftASTContext());
+  if (!protocol_typeref) {
+    if (log)
+      log->Printf("Could not get protocol typeref");
+    return false;
+  }
 
   lldb::addr_t existential_address;
   bool use_local_buffer = false;
@@ -1840,29 +1958,65 @@ bool SwiftLanguageRuntimeImpl::GetDynamicTypeAndAddress_Protocol(
   if (log)
     log->Printf("existential address is 0x%llx", existential_address);
 
-  if (!existential_address || existential_address == LLDB_INVALID_ADDRESS)
+  if (!existential_address || existential_address == LLDB_INVALID_ADDRESS) {
+    if (log)
+      log->Printf("Existential address is invalid");
     return false;
+  }
+
+  // If the protocol list contains any types declared in LLDB,
+  // we use the remote AST implementation since we currently
+  // don't register the metadata generated by LLDB.
+  if (IsDeclaredInLLDBExpr(protocol_typeref)) {
+    auto pair = remote_ast_impl(use_local_buffer, existential_address);
+    if (!pair)
+      return false;
+    class_type_or_name.SetCompilerType(std::get<CompilerType>(*pair));
+    address = std::get<Address>(*pair);
+    return true;
+  }
 
   if (use_local_buffer)
     PushLocalBuffer(existential_address, in_value.GetByteSize().getValueOr(0));
 
   swift::remote::RemoteAddress remote_existential(existential_address);
-  auto result = remote_ast.getDynamicTypeAndAddressForExistential(
-      remote_existential, GetSwiftType(protocol_type));
 
+  auto *reflection_ctx = GetReflectionContext();
+  auto pair = reflection_ctx->projectExistentialAndUnwrapClass(
+      remote_existential, *protocol_typeref);
   if (use_local_buffer)
     PopLocalBuffer();
 
-  if (!result.isSuccess()) {
+  if (!pair) {
     if (log)
-      log->Printf("RemoteAST failed to get dynamic type of existential");
+      log->Printf("Runtime failed to get dynamic type of existential");
     return false;
   }
 
-  auto type_and_address = result.getValue();
-  class_type_or_name.SetCompilerType(
-      ToCompilerType(type_and_address.InstanceType));
-  address.SetRawAddress(type_and_address.PayloadAddress.getAddressData());
+  const swift::reflection::TypeRef *typeref;
+  swift::remote::RemoteAddress out_address(nullptr);
+  std::tie(typeref, out_address) = *pair;
+  auto &ts = tss->GetTypeSystemSwiftTypeRef();
+  swift::Demangle::Demangler dem;
+  swift::Demangle::NodePointer node = typeref->getDemangling(dem);
+  class_type_or_name.SetCompilerType(ts.RemangleAsType(dem, node));
+  address.SetRawAddress(out_address.getAddressData());
+
+#ifndef NDEBUG
+  auto reference_pair = remote_ast_impl(use_local_buffer, existential_address);
+  assert(pair.hasValue() >= reference_pair.hasValue() &&
+         "RemoteAST and runtime diverge");
+
+  if (reference_pair) {
+    CompilerType ref_type = std::get<CompilerType>(*reference_pair);
+    Address ref_address = std::get<Address>(*reference_pair);
+    ConstString a = class_type_or_name.GetCompilerType().GetMangledTypeName();
+    ConstString b = ref_type.GetMangledTypeName();
+    if (a != b)
+      llvm::dbgs() << "RemoteAST and runtime diverge " << a << " != " << b
+                   << "\n";
+  }
+#endif
   return true;
 }
 
@@ -1949,6 +2103,7 @@ CompilerType
 SwiftLanguageRuntimeImpl::BindGenericTypeParameters(StackFrame &stack_frame,
                                                     TypeSystemSwiftTypeRef &ts,
                                                     ConstString mangled_name) {
+  LLDB_SCOPED_TIMER();
   using namespace swift::Demangle;
 
   Status error;
@@ -2046,7 +2201,8 @@ SwiftLanguageRuntimeImpl::BindGenericTypeParameters(StackFrame &stack_frame,
 CompilerType
 SwiftLanguageRuntimeImpl::BindGenericTypeParameters(StackFrame &stack_frame,
                                                     CompilerType base_type) {
-  auto &target = m_process.GetTarget();
+  LLDB_SCOPED_TIMER();
+   auto &target = m_process.GetTarget();
   assert(IsScratchContextLocked(target) &&
          "Swift scratch context not locked ahead of archetype binding");
 
@@ -2514,6 +2670,8 @@ bool SwiftLanguageRuntimeImpl::GetDynamicTypeAndAddress(
   if (use_dynamic == lldb::eNoDynamicValues)
     return false;
 
+  LLDB_SCOPED_TIMER();
+   
   // Try to import a Clang type into Swift.
   if (in_value.GetObjectRuntimeLanguage() == eLanguageTypeObjC)
     return GetDynamicTypeAndAddress_ClangType(
@@ -2728,7 +2886,7 @@ lldb::addr_t SwiftLanguageRuntimeImpl::FixupAddress(lldb::addr_t addr,
     Target &target = m_process.GetTarget();
     size_t ptr_size = m_process.GetAddressByteSize();
     lldb::addr_t refd_addr = LLDB_INVALID_ADDRESS;
-    target.ReadMemory(addr, &refd_addr, ptr_size, error, true);
+    target.ReadMemory(addr, &refd_addr, ptr_size, error);
     if (error.Success()) {
       bool extra_deref;
       std::tie(refd_addr, extra_deref) = FixupPointerValue(refd_addr, type);

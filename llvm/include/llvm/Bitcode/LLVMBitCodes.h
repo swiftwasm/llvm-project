@@ -656,7 +656,7 @@ enum AttributeKindCodes {
   ATTR_KIND_MUSTPROGRESS = 70,
   ATTR_KIND_NO_CALLBACK = 71,
   ATTR_KIND_HOT = 72,
-  ATTR_KIND_SWIFT_ASYNC = 73,
+  ATTR_KIND_SWIFT_ASYNC = 75,
 };
 
 enum ComdatSelectionKindCodes {

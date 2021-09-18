@@ -1957,12 +1957,13 @@ uint32_t SymbolFileDWARF::ResolveSymbolContext(const Address &so_addr,
   return resolved;
 }
 
-uint32_t SymbolFileDWARF::ResolveSymbolContext(const FileSpec &file_spec,
-                                               uint32_t line,
-                                               bool check_inlines,
-                                               SymbolContextItem resolve_scope,
-                                               SymbolContextList &sc_list) {
+uint32_t SymbolFileDWARF::ResolveSymbolContext(
+    const SourceLocationSpec &src_location_spec,
+    SymbolContextItem resolve_scope, SymbolContextList &sc_list) {
   std::lock_guard<std::recursive_mutex> guard(GetModuleMutex());
+  const FileSpec &file_spec = src_location_spec.GetFileSpec();
+  const uint32_t line = src_location_spec.GetLine().getValueOr(0);
+  const bool check_inlines = src_location_spec.GetCheckInlines();
   const uint32_t prev_size = sc_list.GetSize();
   if (resolve_scope & eSymbolContextCompUnit) {
     for (uint32_t cu_idx = 0, num_cus = GetNumCompileUnits(); cu_idx < num_cus;
@@ -1971,8 +1972,8 @@ uint32_t SymbolFileDWARF::ResolveSymbolContext(const FileSpec &file_spec,
       if (!dc_cu)
         continue;
 
-      bool file_spec_matches_cu_file_spec =
-          FileSpec::Match(file_spec, dc_cu->GetPrimaryFile());
+      bool file_spec_matches_cu_file_spec = FileSpec::Match(
+          src_location_spec.GetFileSpec(), dc_cu->GetPrimaryFile());
       if (check_inlines || file_spec_matches_cu_file_spec) {
         SymbolContext sc(m_objfile_sp->GetModule());
         sc.comp_unit = dc_cu;
@@ -1999,9 +2000,11 @@ uint32_t SymbolFileDWARF::ResolveSymbolContext(const FileSpec &file_spec,
 
             if (file_idx != UINT32_MAX) {
               uint32_t found_line;
+              uint16_t found_column;
               uint32_t line_idx = line_table->FindLineEntryIndexByFileIndex(
-                  0, file_idx, line, false, &sc.line_entry);
+                  0, file_idx, src_location_spec, &sc.line_entry);
               found_line = sc.line_entry.line;
+              found_column = sc.line_entry.column;
 
               while (line_idx != UINT32_MAX) {
                 sc.function = nullptr;
@@ -2016,9 +2019,13 @@ uint32_t SymbolFileDWARF::ResolveSymbolContext(const FileSpec &file_spec,
                   }
                 }
 
+                SourceLocationSpec found_location_spec(
+                    file_spec, found_line, found_column,
+                    /*check_inlines=*/false, /*exact=*/true);
                 sc_list.Append(sc);
                 line_idx = line_table->FindLineEntryIndexByFileIndex(
-                    line_idx + 1, file_idx, found_line, true, &sc.line_entry);
+                    line_idx + 1, file_idx, found_location_spec,
+                    &sc.line_entry);
               }
             }
           } else if (file_spec_matches_cu_file_spec && !check_inlines) {

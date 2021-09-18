@@ -1160,10 +1160,20 @@ CompilerType TypeSystemClang::GetBuiltinTypeForDWARFEncodingAndBitSize(
   // to fix any issues we run into.
   if (!type_name.empty()) {
     std::string type_name_str = type_name.str();
-    Host::SystemLog(Host::eSystemLogError,
-                    "error: need to add support for DW_TAG_base_type '%s' "
-                    "encoded with DW_ATE = 0x%x, bit_size = %u\n",
-                    type_name_str.c_str(), dw_ate, bit_size);
+    // GCC and newer Clang versions emit 'auto' types. This isn't supported yet,
+    // but we should also not spam the stderr with warnings, so instead log
+    // these special types. See rdar://71352569
+    if (type_name_str == "auto") {
+      Log *log(GetLogIfAllCategoriesSet(LIBLLDB_LOG_TYPES));
+      LLDB_LOGF(log, "error: need to add support for DW_TAG_base_type '%s' "
+               "encoded with DW_ATE = 0x%x, bit_size = %u\n",
+               type_name_str.c_str(), dw_ate, bit_size);
+    } else {
+      Host::SystemLog(Host::eSystemLogError,
+                      "error: need to add support for DW_TAG_base_type '%s' "
+                      "encoded with DW_ATE = 0x%x, bit_size = %u\n",
+                      type_name_str.c_str(), dw_ate, bit_size);
+    }
   } else {
     Host::SystemLog(Host::eSystemLogError, "error: need to add support for "
                                            "DW_TAG_base_type encoded with "
@@ -9240,11 +9250,11 @@ CompilerType TypeSystemClang::DeclGetFunctionArgumentType(void *opaque_decl,
 std::vector<CompilerDecl> TypeSystemClang::DeclContextFindDeclByName(
     void *opaque_decl_ctx, ConstString name, const bool ignore_using_decls) {
   std::vector<CompilerDecl> found_decls;
-  if (opaque_decl_ctx) {
+  SymbolFile *symbol_file = GetSymbolFile();
+  if (opaque_decl_ctx && symbol_file) {
     DeclContext *root_decl_ctx = (DeclContext *)opaque_decl_ctx;
     std::set<DeclContext *> searched;
     std::multimap<DeclContext *, DeclContext *> search_queue;
-    SymbolFile *symbol_file = GetSymbolFile();
 
     for (clang::DeclContext *decl_context = root_decl_ctx;
          decl_context != nullptr && found_decls.empty();
@@ -9338,10 +9348,10 @@ uint32_t TypeSystemClang::CountDeclLevels(clang::DeclContext *frame_decl_ctx,
                                           clang::DeclContext *child_decl_ctx,
                                           ConstString *child_name,
                                           CompilerType *child_type) {
-  if (frame_decl_ctx) {
+  SymbolFile *symbol_file = GetSymbolFile();
+  if (frame_decl_ctx && symbol_file) {
     std::set<DeclContext *> searched;
     std::multimap<DeclContext *, DeclContext *> search_queue;
-    SymbolFile *symbol_file = GetSymbolFile();
 
     // Get the lookup scope for the decl we're trying to find.
     clang::DeclContext *parent_decl_ctx = child_decl_ctx->getParent();

@@ -99,6 +99,8 @@ Vote ThreadPlan::ShouldReportRun(Event *event_ptr) {
   return m_run_vote;
 }
 
+void ThreadPlan::ClearThreadCache() { m_thread = nullptr; }
+
 bool ThreadPlan::StopOthers() {
   ThreadPlan *prev_plan;
   prev_plan = GetPreviousPlan();
@@ -147,7 +149,7 @@ lldb::user_id_t ThreadPlan::GetNextID() {
 
 void ThreadPlan::DidPush() {}
 
-void ThreadPlan::WillPop() {}
+void ThreadPlan::DidPop() {}
 
 bool ThreadPlan::OkayToDiscard() {
   return IsMasterPlan() ? m_okay_to_discard : true;

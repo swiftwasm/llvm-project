@@ -749,6 +749,40 @@ void Verifier::visitGlobalVariable(const GlobalVariable &GV) {
                       "DIGlobalVariableExpression");
   }
 
+  MDs.clear();
+  GV.getMetadata(LLVMContext::MD_vcall_visibility, MDs);
+  for (auto *MD : MDs) {
+    Assert(MD->getNumOperands() >= 1, "bad !vcall_visibility attachment");
+    Assert(isa<ConstantAsMetadata>(MD->getOperand(0)),
+           "bad !vcall_visibility attachment");
+    auto *Op0Val = cast<ConstantAsMetadata>(MD->getOperand(0))->getValue();
+    Assert(isa<ConstantInt>(Op0Val), "bad !vcall_visibility attachment");
+    auto Op0Int = cast<ConstantInt>(Op0Val)->getValue();
+    Assert(Op0Int.uge(0) && Op0Int.ult(std::numeric_limits<uint64_t>::max()),
+           "bad !vcall_visibility attachment");
+    if (MD->getNumOperands() == 3) {
+      Assert(isa<ConstantAsMetadata>(MD->getOperand(1)),
+             "bad !vcall_visibility attachment");
+      auto *Op1Val = cast<ConstantAsMetadata>(MD->getOperand(1))->getValue();
+      Assert(isa<ConstantInt>(Op1Val), "bad !vcall_visibility attachment");
+      auto Op1Int = cast<ConstantInt>(Op1Val)->getValue();
+      Assert(Op1Int.uge(0) && Op1Int.ult(std::numeric_limits<uint64_t>::max()),
+             "bad !vcall_visibility attachment");
+
+      Assert(isa<ConstantAsMetadata>(MD->getOperand(2)),
+             "bad !vcall_visibility attachment");
+      auto *Op2Val = cast<ConstantAsMetadata>(MD->getOperand(2))->getValue();
+      Assert(isa<ConstantInt>(Op2Val), "bad !vcall_visibility attachment");
+      auto Op2Int = cast<ConstantInt>(Op2Val)->getValue();
+      Assert(Op2Int.uge(0) && Op2Int.ult(std::numeric_limits<uint64_t>::max()),
+             "bad !vcall_visibility attachment");
+
+      Assert(Op1Int.ule(Op2Int), "bad !vcall_visibility attachment");
+    } else {
+      Assert(MD->getNumOperands() == 1, "bad !vcall_visibility attachment");
+    }
+  }
+
   // Scalable vectors cannot be global variables, since we don't know
   // the runtime size. If the global is an array containing scalable vectors,
   // that will be caught by the isValidElementType methods in StructType or
@@ -840,6 +874,34 @@ void Verifier::visitNamedMDNode(const NamedMDNode &NMD) {
       continue;
 
     visitMDNode(*MD, AreDebugLocsAllowed::Yes);
+  }
+
+  if (NMD.getName() == "llvm.used.conditional") {
+    for (const MDNode *MD : NMD.operands()) {
+      Assert(MD->getNumOperands() == 3, "invalid llvm.used.conditional member");
+      auto *TargetMD = MD->getOperand(0).get();
+      if (TargetMD != nullptr) {
+        Assert(mdconst::dyn_extract<GlobalValue>(TargetMD),
+               "invalid llvm.used.conditional member");
+      }
+      auto *TypeMD = mdconst::extract_or_null<ConstantInt>(MD->getOperand(1));
+      int64_t Type = TypeMD->getValue().getSExtValue();
+      Assert(Type == 0 || Type == 1, "invalid llvm.used.conditional member");
+      auto *DependenciesMD = dyn_cast<MDNode>(MD->getOperand(2).get());
+      Assert(DependenciesMD, "invalid llvm.used.conditional member");
+      Assert(DependenciesMD->getNumOperands() > 0,
+             "invalid llvm.used.conditional member");
+      for (auto &DependencyMD : DependenciesMD->operands()) {
+        auto *Dependency = DependencyMD.get();
+        if (!Dependency)
+          continue; // Allow null, skip.
+        auto *C =
+            mdconst::dyn_extract<Constant>(Dependency)->stripPointerCasts();
+        if (dyn_cast<UndefValue>(C))
+          continue; // Allow undef, skip.
+        Assert(isa<GlobalValue>(C), "invalid llvm.used.conditional member");
+      }
+    }
   }
 }
 

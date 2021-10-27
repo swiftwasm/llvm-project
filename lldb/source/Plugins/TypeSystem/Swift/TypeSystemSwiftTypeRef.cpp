@@ -2274,12 +2274,14 @@ TypeSystemSwiftTypeRef::GetMemberFunctionAtIndex(opaque_compiler_type_t type,
                                                        idx);
   return {};
 }
+
 CompilerType
 TypeSystemSwiftTypeRef::GetPointeeType(opaque_compiler_type_t type) {
-  if (auto *swift_ast_context = GetSwiftASTContext())
-    return swift_ast_context->GetPointeeType(ReconstructType(type));
-  return {};
+  auto impl = []() { return CompilerType(); };
+  VALIDATE_AND_RETURN(impl, GetPointeeType, type,
+                      (ReconstructType(type)), (ReconstructType(type)));
 }
+
 CompilerType
 TypeSystemSwiftTypeRef::GetPointerType(opaque_compiler_type_t type) {
   auto impl = [&]() -> CompilerType {
@@ -3533,25 +3535,6 @@ TypeSystemSwiftTypeRef::GetFullyUnqualifiedType(opaque_compiler_type_t type) {
   if (auto *swift_ast_context = GetSwiftASTContext())
     return swift_ast_context->GetFullyUnqualifiedType(ReconstructType(type));
   return {};
-}
-CompilerType
-TypeSystemSwiftTypeRef::GetNonReferenceType(opaque_compiler_type_t type) {
-  if (auto *swift_ast_context = GetSwiftASTContext())
-  return swift_ast_context->GetNonReferenceType(ReconstructType(type));
-  return {};
-}
-CompilerType
-TypeSystemSwiftTypeRef::GetLValueReferenceType(opaque_compiler_type_t type) {
-  auto impl = []() { return CompilerType(); };
-  VALIDATE_AND_RETURN(impl, GetLValueReferenceType, type,
-                      (ReconstructType(type)), (ReconstructType(type)));
-}
-CompilerType
-TypeSystemSwiftTypeRef::GetRValueReferenceType(opaque_compiler_type_t type) {
-  auto impl = []() { return CompilerType(); };
-
-  VALIDATE_AND_RETURN(impl, GetRValueReferenceType, type,
-                      (ReconstructType(type)), (ReconstructType(type)));
 }
 uint32_t
 TypeSystemSwiftTypeRef::GetNumDirectBaseClasses(opaque_compiler_type_t type) {

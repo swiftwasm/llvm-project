@@ -680,9 +680,34 @@ raw_fd_ostream::~raw_fd_ostream() {
   // to avoid report_fatal_error calls should check for errors with
   // has_error() and clear the error flag with clear_error() before
   // destructing raw_ostream objects which may have errors.
-  if (has_error())
-    report_fatal_error("IO failure on output stream: " + error().message(),
-                       /*gen_crash_diag=*/false);
+  if (has_error()) {
+    // The following is a workaround for a Swift compiler issue wherein the
+    // compiler occassionally crashes in this destructor with no meaningful
+    // error diagnostic being emitted. This is possibly due to Swift's
+    // installed error handler relying on standard output/error streams,
+    // which may in fact be the ones causing the error here.
+    //
+    // In order to get a richer diagnostic signal than a stack trace indicating
+    // this as a point of failure, let's try blasting the error to stderr
+    // without relying on things like errs(), in the hope that these error
+    // messages can help yield actionable bug reports.
+    //
+    // Also, as a part of this temporary workaround, we can try to minimize
+    // the impact of the crash by avoiding `report_fatal_error` and its
+    // subsequent call to `abort()`.
+    {
+      SmallVector<char, 256> Buffer;
+      raw_svector_ostream OS(Buffer);
+      OS << "Error encountered during compilation; ";
+      OS << "please submit a bug report (https://swift.org/contributing/#reporting-bugs) and include the project\n";
+      OS << "File Descriptor close failed on FD: " << FD << "\n";
+      OS << "Error: " << error().message() << "\n";
+      StringRef MessageStr = OS.str();
+      ::write(STDERR_FILENO, MessageStr.data(), MessageStr.size());
+    }
+    // report_fatal_error("IO failure on output stream: " + error().message(),
+    //                    /*gen_crash_diag=*/false);
+  }
 }
 
 #if defined(_WIN32)

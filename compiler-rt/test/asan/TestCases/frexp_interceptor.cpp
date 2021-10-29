@@ -3,7 +3,7 @@
 // Test the frexp() interceptor.
 // we are choosing not to cherry pick the fix for this test to this branch rdar://81224953
 // fix is this commit: https://github.com/apple/llvm-project/commit/cfa4d112da8d
-// XFAIL: ios && !iossim
+// UNSUPPORTED: ios
 
 #include <math.h>
 #include <stdio.h>

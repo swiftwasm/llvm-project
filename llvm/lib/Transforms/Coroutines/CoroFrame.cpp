@@ -2165,7 +2165,10 @@ static void collectFrameAllocas(Function &F, coro::Shape &Shape,
     }
     bool ShouldLiveOnFrame = false;
     auto Iter = LifetimeMap.find(AI);
-    if (Iter != LifetimeMap.end()) {
+    bool ShouldOptimizeBasedOnLifetimeMarker =
+        Shape.ABI != coro::ABI::Async && Shape.ABI != coro::ABI::Retcon &&
+        Shape.ABI != coro::ABI::RetconOnce;
+    if (ShouldOptimizeBasedOnLifetimeMarker && Iter != LifetimeMap.end()) {
       // Check against lifetime.start if the instruction has the info.
       for (User *U : I.users()) {
         for (auto *S : *Iter->second)
@@ -2369,7 +2372,11 @@ void coro::buildCoroutineFrame(Function &F, Shape &Shape) {
     }
   }
 
-  sinkLifetimeStartMarkers(F, Shape, Checker);
+  bool ShouldOptimizeBasedOnLifetimeMarker = Shape.ABI != coro::ABI::Async &&
+                                             Shape.ABI != coro::ABI::Retcon &&
+                                             Shape.ABI != coro::ABI::RetconOnce;
+  if (ShouldOptimizeBasedOnLifetimeMarker)
+    sinkLifetimeStartMarkers(F, Shape, Checker);
   if (Shape.ABI != coro::ABI::Async || !Shape.CoroSuspends.empty())
     collectFrameAllocas(F, Shape, Checker, FrameData.Allocas);
   LLVM_DEBUG(dumpAllocas(FrameData.Allocas));

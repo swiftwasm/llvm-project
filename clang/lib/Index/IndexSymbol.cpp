@@ -588,6 +588,7 @@ void index::applyForEachSymbolProperty(SymbolPropertySet Props,
   APPLY_FOR_PROPERTY(GKInspectable);
   APPLY_FOR_PROPERTY(Local);
   APPLY_FOR_PROPERTY(ProtocolInterface);
+  APPLY_FOR_PROPERTY(SwiftAsync);
 
 #undef APPLY_FOR_PROPERTY
 }
@@ -609,6 +610,7 @@ void index::printSymbolProperties(SymbolPropertySet Props, raw_ostream &OS) {
     case SymbolProperty::GKInspectable: OS << "GKI"; break;
     case SymbolProperty::Local: OS << "local"; break;
     case SymbolProperty::ProtocolInterface: OS << "protocol"; break;
+    case SymbolProperty::SwiftAsync: OS << "swift_async"; break;
     }
   });
 }

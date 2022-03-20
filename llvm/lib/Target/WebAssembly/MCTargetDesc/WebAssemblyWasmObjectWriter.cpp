@@ -123,7 +123,8 @@ unsigned WebAssemblyWasmObjectWriter::getRelocType(
       if (FixupSection.getKind().isMetadata())
         return wasm::R_WASM_FUNCTION_OFFSET_I32;
       assert(FixupSection.isWasmData());
-      return wasm::R_WASM_TABLE_INDEX_I32;
+      return IsLocRel ? wasm::R_WASM_TABLE_ADDR_LOCREL_I32
+                      : wasm::R_WASM_TABLE_INDEX_I32;
     }
     if (SymA.isGlobal())
       return wasm::R_WASM_GLOBAL_INDEX_I32;

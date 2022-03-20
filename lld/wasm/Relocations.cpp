@@ -101,6 +101,7 @@ void scanRelocations(InputChunk *chunk) {
     case R_WASM_TABLE_INDEX_SLEB64:
     case R_WASM_TABLE_INDEX_REL_SLEB:
     case R_WASM_TABLE_INDEX_REL_SLEB64:
+    case R_WASM_TABLE_ADDR_LOCREL_I32:
       if (requiresGOTAccess(sym))
         break;
       out.elemSec->addEntry(cast<FunctionSymbol>(sym));

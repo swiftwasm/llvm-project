@@ -2,7 +2,7 @@
 
 ; CHECK:      Format: WASM
 ; CHECK:      Relocations [
-; CHECK-NEXT:   Section (3) DATA {
+; CHECK-NEXT:   Section (4) DATA {
 ; CHECK-NEXT:     Relocation {
 ; CHECK-NEXT:       Type: R_WASM_MEMORY_ADDR_LOCREL_I32 (23)
 ; CHECK-NEXT:       Offset: 0x6
@@ -20,6 +20,24 @@
 ; CHECK-NEXT:       Offset: 0x17
 ; CHECK-NEXT:       Symbol: foo
 ; CHECK-NEXT:       Addend: 4
+; CHECK-NEXT:     }
+; CHECK-NEXT:     Relocation {
+; CHECK-NEXT:       Type: R_WASM_TABLE_ADDR_LOCREL_I32 (26)
+; CHECK-NEXT:       Offset: 0x1B
+; CHECK-NEXT:       Symbol: indirect_callee3
+; CHECK-NEXT:       Addend: 8
+; CHECK-NEXT:     }
+; CHECK-NEXT:     Relocation {
+; CHECK-NEXT:       Type: R_WASM_TABLE_ADDR_LOCREL_I32 (26)
+; CHECK-NEXT:       Offset: 0x24
+; CHECK-NEXT:       Symbol: indirect_callee1
+; CHECK-NEXT:       Addend: 0
+; CHECK-NEXT:     }
+; CHECK-NEXT:     Relocation {
+; CHECK-NEXT:       Type: R_WASM_TABLE_ADDR_LOCREL_I32 (26)
+; CHECK-NEXT:       Offset: 0x28
+; CHECK-NEXT:       Symbol: indirect_callee2
+; CHECK-NEXT:       Addend: 0
 ; CHECK-NEXT:     }
 ; CHECK-NEXT:   }
 ; CHECK-NEXT: ]
@@ -46,3 +64,29 @@ target triple = "wasm32-unknown-unknown"
     i32 ptrtoint (i32* @fizz to i32),
     i32 ptrtoint (i32* @x_sec to i32)
 ), section ".sec1"
+
+define i32 @indirect_callee1() {
+  ret i32 1
+}
+define i32 @indirect_callee2() {
+  ret i32 2
+}
+define i32 @indirect_callee3() {
+  ret i32 3
+}
+
+@relptr_table = constant { i32, i32 } {
+  i32 sub (
+    i32 ptrtoint (i32 ()* @indirect_callee1 to i32),
+    i32 ptrtoint ({ i32, i32 }* @relptr_table to i32)
+  ),
+  i32 sub (
+    i32 ptrtoint (i32 ()* @indirect_callee2 to i32),
+    i32 add (i32 ptrtoint ({ i32, i32 }* @relptr_table to i32), i32 4)
+  )
+}
+
+@table_addend = constant i32 sub (
+    i32 ptrtoint (i32 ()* @indirect_callee3 to i32),
+    i32 ptrtoint (i32* @fizz to i32)
+), section ".sec2"

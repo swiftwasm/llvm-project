@@ -929,9 +929,13 @@ Error WasmObjectFile::parseRelocSection(StringRef Name, ReadContext &Ctx) {
     case wasm::R_WASM_TABLE_INDEX_I64:
     case wasm::R_WASM_TABLE_INDEX_REL_SLEB:
     case wasm::R_WASM_TABLE_INDEX_REL_SLEB64:
+    case wasm::R_WASM_TABLE_ADDR_LOCREL_I32:
       if (!isValidFunctionSymbol(Reloc.Index))
         return make_error<GenericBinaryError>(
             "invalid relocation function index", object_error::parse_failed);
+      if (type == wasm::R_WASM_TABLE_ADDR_LOCREL_I32)
+        Reloc.Addend = readVarint32(Ctx);
+
       break;
     case wasm::R_WASM_TABLE_NUMBER_LEB:
       if (!isValidTableSymbol(Reloc.Index))
@@ -1016,6 +1020,7 @@ Error WasmObjectFile::parseRelocSection(StringRef Name, ReadContext &Ctx) {
         Reloc.Type == wasm::R_WASM_MEMORY_ADDR_REL_SLEB64)
       Size = 10;
     if (Reloc.Type == wasm::R_WASM_TABLE_INDEX_I32 ||
+        Reloc.Type == wasm::R_WASM_TABLE_ADDR_LOCREL_I32 ||
         Reloc.Type == wasm::R_WASM_MEMORY_ADDR_I32 ||
         Reloc.Type == wasm::R_WASM_MEMORY_ADDR_LOCREL_I32 ||
         Reloc.Type == wasm::R_WASM_SECTION_OFFSET_I32 ||

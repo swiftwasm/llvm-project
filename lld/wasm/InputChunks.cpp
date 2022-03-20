@@ -150,6 +150,7 @@ void InputChunk::relocate(uint8_t *buf) const {
     case R_WASM_SECTION_OFFSET_I32:
     case R_WASM_GLOBAL_INDEX_I32:
     case R_WASM_MEMORY_ADDR_LOCREL_I32:
+    case R_WASM_TABLE_ADDR_LOCREL_I32:
       write32le(loc, value);
       break;
     case R_WASM_TABLE_INDEX_I64:

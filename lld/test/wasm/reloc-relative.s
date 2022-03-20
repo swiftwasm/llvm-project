@@ -48,6 +48,37 @@ far:
   .int32 21
   .size far, 4
 
+.section .text.indirect_callee,"",@
+.globl  indirect_callee1
+indirect_callee1:
+  .functype indirect_callee1 () -> ()
+  end_function
+
+.globl  indirect_callee2
+indirect_callee2:
+  .functype indirect_callee2 () -> ()
+  end_function
+
+.globl  indirect_callee3
+indirect_callee3:
+  .functype indirect_callee3 () -> ()
+  end_function
+
+.type   relptr_table,@object
+.section .relptr_table,"",@
+.globl  relptr_table
+relptr_table:
+  .int32  indirect_callee1-relptr_table
+  .int32  indirect_callee2-(relptr_table+4)
+  .size   relptr_table, 8
+
+.type   table_addend,@object
+.globl  table_addend
+table_addend:
+  .int32  indirect_callee3-relptr_table
+  .size   table_addend, 4
+
+
 # CHECK:      - Type:            DATA
 # CHECK-NEXT:    Segments:
 # CHECK-NEXT:      - SectionOffset:   7
@@ -86,4 +117,10 @@ far:
 # CHECK-NEXT:          Opcode:          I32_CONST
 # CHECK-NEXT:          Value:           1063
 # CHECK-NEXT:        Content:         '15000000'
+# CHECK-NEXT:      - SectionOffset:   86
+# CHECK-NEXT:        InitFlags:       0
+# CHECK-NEXT:        Offset:
+# CHECK-NEXT:          Opcode:          I32_CONST
+# CHECK-NEXT:          Value:           1067
+# CHECK-NEXT:        Content:         D6FBFFFFD3FBFFFFD8FBFFFF
 

@@ -568,7 +568,8 @@ void WasmObjectWriter::recordRelocation(MCAssembler &Asm,
       Type == wasm::R_WASM_TABLE_INDEX_SLEB ||
       Type == wasm::R_WASM_TABLE_INDEX_SLEB64 ||
       Type == wasm::R_WASM_TABLE_INDEX_I32 ||
-      Type == wasm::R_WASM_TABLE_INDEX_I64) {
+      Type == wasm::R_WASM_TABLE_INDEX_I64 ||
+      Type == wasm::R_WASM_TABLE_ADDR_LOCREL_I32) {
     // TABLE_INDEX relocs implicitly use the default indirect function table.
     // We require the function table to have already been defined.
     auto TableName = "__indirect_function_table";
@@ -637,7 +638,8 @@ WasmObjectWriter::getProvisionalValue(const WasmRelocationEntry &RelEntry,
   case wasm::R_WASM_TABLE_INDEX_SLEB:
   case wasm::R_WASM_TABLE_INDEX_SLEB64:
   case wasm::R_WASM_TABLE_INDEX_I32:
-  case wasm::R_WASM_TABLE_INDEX_I64: {
+  case wasm::R_WASM_TABLE_INDEX_I64:
+  case wasm::R_WASM_TABLE_ADDR_LOCREL_I32: {
     // Provisional value is table address of the resolved symbol itself
     const MCSymbolWasm *Base =
         cast<MCSymbolWasm>(Layout.getBaseSymbol(*RelEntry.Symbol));
@@ -775,6 +777,7 @@ void WasmObjectWriter::applyRelocations(
     case wasm::R_WASM_SECTION_OFFSET_I32:
     case wasm::R_WASM_GLOBAL_INDEX_I32:
     case wasm::R_WASM_MEMORY_ADDR_LOCREL_I32:
+    case wasm::R_WASM_TABLE_ADDR_LOCREL_I32:
       patchI32(Stream, Value, Offset);
       break;
     case wasm::R_WASM_TABLE_INDEX_I64:
@@ -1808,7 +1811,8 @@ uint64_t WasmObjectWriter::writeOneObject(MCAssembler &Asm,
           Rel.Type != wasm::R_WASM_TABLE_INDEX_SLEB &&
           Rel.Type != wasm::R_WASM_TABLE_INDEX_SLEB64 &&
           Rel.Type != wasm::R_WASM_TABLE_INDEX_REL_SLEB &&
-          Rel.Type != wasm::R_WASM_TABLE_INDEX_REL_SLEB64)
+          Rel.Type != wasm::R_WASM_TABLE_INDEX_REL_SLEB64 &&
+          Rel.Type != wasm::R_WASM_TABLE_ADDR_LOCREL_I32)
         return;
       assert(Rel.Symbol->isFunction());
       const MCSymbolWasm *Base =
